@@ -1,0 +1,7 @@
+# depslib dependency file v1.0
+1609269332 source:/home/amarok/Documents/Robot Unicorn Attack/main.cpp
+	<math.h>
+	<stdio.h>
+	<string.h>
+	<SDL2/SDL.h>
+
