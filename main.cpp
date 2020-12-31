@@ -1,4 +1,5 @@
 #define _USE_MATH_DEFINES
+#define M_DEG 0.0174533 // 1 angular degree in radians
 
 #include <math.h>
 #include <stdio.h>
@@ -8,13 +9,11 @@
 #define SCREEN_WIDTH	640
 #define SCREEN_HEIGHT	480
 
+using namespace std;
 
-// narysowanie napisu txt na powierzchni screen, zaczynając od punktu (x, y)
-// charset to bitmapa 128x128 zawierająca znaki
 // draw a text txt on surface screen, starting from the point (x, y)
 // charset is a 128x128 bitmap containing character images
-void DrawString(SDL_Surface *screen, int x, int y, const char *text,
-                SDL_Surface *charset) {
+void DrawString(SDL_Surface *screen, int x, int y, const char *text, SDL_Surface *charset) {
 	int px, py, c;
 	SDL_Rect s, d;
 	s.w = 8;
@@ -33,13 +32,9 @@ void DrawString(SDL_Surface *screen, int x, int y, const char *text,
 		x += 8;
 		text++;
 		};
-	};
+};
 
 
-// narysowanie na ekranie screen powierzchni sprite w punkcie (x, y)
-// (x, y) to punkt œrodka obrazka sprite na ekranie
-// draw a surface sprite on a surface screen in point (x, y)
-// (x, y) is the center of sprite on screen
 void DrawSurface(SDL_Surface *screen, SDL_Surface *sprite, int x, int y) {
 	SDL_Rect dest;
 	dest.x = x - sprite->w / 2;
@@ -47,11 +42,9 @@ void DrawSurface(SDL_Surface *screen, SDL_Surface *sprite, int x, int y) {
 	dest.w = sprite->w;
 	dest.h = sprite->h;
 	SDL_BlitSurface(sprite, NULL, screen, &dest);
-	};
+};
 
 
-// rysowanie pojedynczego pixela
-// draw a single pixel
 void DrawPixel(SDL_Surface *surface, int x, int y, Uint32 color) {
 	int bpp = surface->format->BytesPerPixel;
 	Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
@@ -59,19 +52,16 @@ void DrawPixel(SDL_Surface *surface, int x, int y, Uint32 color) {
 	};
 
 
-// rysowanie linii o d³ugoœci l w pionie (gdy dx = 0, dy = 1)
-// b¹dŸ poziomie (gdy dx = 1, dy = 0)
 // draw a vertical (when dx = 0, dy = 1) or horizontal (when dx = 1, dy = 0) line
 void DrawLine(SDL_Surface *screen, int x, int y, int l, int dx, int dy, Uint32 color) {
 	for(int i = 0; i < l; i++) {
 		DrawPixel(screen, x, y, color);
 		x += dx;
 		y += dy;
-		};
-	};
+		}
+}
 
 
-// rysowanie prostok¹ta o d³ugoœci boków l i k
 // draw a rectangle of size l by k
 void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k,
                    Uint32 outlineColor, Uint32 fillColor) {
@@ -80,15 +70,49 @@ void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k,
 	DrawLine(screen, x + l - 1, y, k, 0, 1, outlineColor);
 	DrawLine(screen, x, y, l, 1, 0, outlineColor);
 	DrawLine(screen, x, y + k - 1, l, 1, 0, outlineColor);
-	for(i = y + 1; i < y + k - 1; i++)
-		DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
-	};
+	for (i = y + 1; i < y + k - 1; i++) DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
+}
+
+struct coordinates {
+    float x, y;
+};
+
+coordinates graphic_rotate(coordinates coords, coordinates pivot, float angle) {
+    // Called "graphic" rotate because it adheres to how coordinates work in graphics-related code:
+    // x works as usual, but y increases downwards.
+    // angle must be in radians.
+    coordinates result;
+    float x, y, x_rot, y_rot;
+    x = coords.x - pivot.x;
+    y = coords.y - pivot.y;
+    x_rot = x * cos(angle);
+    y_rot = y * (1 - sin(angle));
+    result.x = x_rot + pivot.x;
+    result.y = y_rot + pivot.y;
+    return result;
+}
+
+class Unicorn {
+    // private
+        // Immutable properties - only settable on instatiation.
+        int init_front_hooves_pos_A, init_rear_hooves_pos_A, init_front_hooves_pos_B, init_rear_hooves_pos_B,
+            init_nose_pos_A, init_nose_pos_B;
+        // Variables
+        int lives;
+        float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
+        bool double_jump_ready, sprite_phase;
+
+    public:
+        coordinates get_front_hooves_pos();
+        coordinates get_rear_hooves_pos();
+        coordinates get_nose_pos();
+} player;
 
 
-// main
-#ifdef __cplusplus
-extern "C"
-#endif
+// I'm using classes, so C++ compilation has to be used, but let's remember this trick for later.
+// #ifdef __cplusplus
+// extern "C"
+// #endif
 int main(int argc, char **argv) {
 	int t1, t2, quit, frames, rc;
 	double delta, worldTime, fpsTimer, fps, distance, etiSpeed;
@@ -98,13 +122,14 @@ int main(int argc, char **argv) {
 	SDL_Texture *scrtex;
 	SDL_Window *window;
 	SDL_Renderer *renderer;
+	bool fullscreen = false; // TODO: Load this from config.
 
 	printf("Robot Unicorn Attack v0.1");
 
 	if(SDL_Init(SDL_INIT_EVERYTHING) != 0) {
 		printf("SDL_Init error: %s\n", SDL_GetError());
 		return 1;
-		}
+    }
 
 	// tryb pe³noekranowy / fullscreen mode
 //	rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP,
@@ -136,7 +161,7 @@ int main(int argc, char **argv) {
 	SDL_ShowCursor(SDL_DISABLE);
 
 	// wczytanie obrazka cs8x8.bmp
-	charset = SDL_LoadBMP("./cs8x8.bmp");
+	charset = SDL_LoadBMP("./resources/cs8x8.bmp");
 	if(charset == NULL) {
 		printf("SDL_LoadBMP(cs8x8.bmp) error: %s\n", SDL_GetError());
 		SDL_FreeSurface(screen);
@@ -145,8 +170,9 @@ int main(int argc, char **argv) {
 		SDL_DestroyRenderer(renderer);
 		SDL_Quit();
 		return 1;
-		};
-	SDL_SetColorKey(charset, true, 0x000000);
+    }
+
+	SDL_SetColorKey(charset, true, 0x000000); // sets black as the transparent color for the bitmap loaded to charset
 
 	eti = SDL_LoadBMP("./eti.bmp");
 	if(eti == NULL) {
@@ -247,4 +273,4 @@ int main(int argc, char **argv) {
 
 	SDL_Quit();
 	return 0;
-	};
+};
