@@ -8,6 +8,9 @@
 
 #define SCREEN_WIDTH	640
 #define SCREEN_HEIGHT	480
+#define DEFAULT_X 20
+#define gravity .3
+#define drag 1.2 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
 
 using namespace std;
 
@@ -99,14 +102,54 @@ class Unicorn {
             init_nose_pos_A, init_nose_pos_B;
         // Variables
         int lives;
-        float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
         bool double_jump_ready, sprite_phase;
+        SDL_Surface *spriteA, *spriteB;
 
     public:
+        float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
+        float x_velocity = 0, y_velocity = 0;
+        bool on_surface;
+        Unicorn() {
+            x = DEFAULT_X;
+            y = 60;
+            angle = 0;
+            sprite_phase = false;
+            double_jump_ready = true;
+            lives = 3;
+            spriteA = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
+            spriteB = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
+        }
         coordinates get_front_hooves_pos();
         coordinates get_rear_hooves_pos();
         coordinates get_nose_pos();
+        void jump();
+        void dash();
+        SDL_Surface* sprite();
 } player;
+
+void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
+    if (*cheaters_controls) player->x = DEFAULT_X;
+    *cheaters_controls ^= 1;
+}
+
+SDL_Surface* Unicorn::sprite() {
+    if (sprite_phase) return spriteA;
+    else return spriteB;
+}
+
+void Unicorn::jump() {
+    if (on_surface) {
+        y_velocity -= 10;
+    } else if (double_jump_ready) {
+        y_velocity -= 10;
+        double_jump_ready = false;
+    }
+    return;
+}
+
+void Unicorn::dash() {
+    return;
+}
 
 
 // I'm using classes, so C++ compilation has to be used, but let's remember this trick for later.
@@ -115,16 +158,17 @@ class Unicorn {
 // #endif
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.1"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
-
-	int t1, t2, quit, frames, rc;
-	double delta, worldTime, fpsTimer, fps, distance, etiSpeed;
+	int t1, t2, frames, rc;
+	double delta, worldTime, fpsTimer, fps;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
 	SDL_Surface *eti;
-	SDL_Texture *scrtex;
+	SDL_Texture *scrtex; // Screen texture.
 	SDL_Window *window;
 	SDL_Renderer *renderer;
 	bool fullscreen = false; // TODO: Load this from config.
+	bool cheaters_controls = true;
+	bool quit = false;
 
 	if(SDL_Init(SDL_INIT_EVERYTHING) != 0) {
 		printf("SDL_Init error: %s\n", SDL_GetError());
@@ -150,7 +194,7 @@ int main(int argc, char **argv) {
 	SDL_SetWindowTitle(window, "Robot Unicorn Attack");
 	SDL_ShowCursor(SDL_DISABLE); // Hide cursor
 
-	// wczytanie obrazka cs8x8.bmp
+	// load cs8x8.bmp
 	charset = SDL_LoadBMP("./resources/cs8x8.bmp");
 	if(charset == NULL) {
 		printf("SDL_LoadBMP(cs8x8.bmp) error: %s\n", SDL_GetError());
@@ -174,23 +218,19 @@ int main(int argc, char **argv) {
 		SDL_DestroyRenderer(renderer);
 		SDL_Quit();
 		return 1;
-		};
+    };
 
 	char text[128];
-	int czarny = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-	int zielony = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
-	int czerwony = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
-	int niebieski = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
+	int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
+	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
+	int color_red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
+	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
 
 	t1 = SDL_GetTicks();
-
 	frames = 0;
 	fpsTimer = 0;
 	fps = 0;
-	quit = 0;
 	worldTime = 0;
-	distance = 0;
-	etiSpeed = 1;
 
 	while(!quit) {
 		t2 = SDL_GetTicks();
@@ -203,26 +243,25 @@ int main(int argc, char **argv) {
 		// delta is the same time in seconds
 		delta = (t2 - t1) * 0.001;
 		t1 = t2;
-
 		worldTime += delta;
 
-		distance += etiSpeed * delta;
+		SDL_FillRect(screen, NULL, color_black);
 
-		SDL_FillRect(screen, NULL, czarny);
+//		DrawSurface(screen, eti,
+//		            SCREEN_WIDTH / 2 + sin(distance) * SCREEN_HEIGHT / 3,
+//			    SCREEN_HEIGHT / 2 + cos(distance) * SCREEN_HEIGHT / 3);
 
-		DrawSurface(screen, eti,
-		            SCREEN_WIDTH / 2 + sin(distance) * SCREEN_HEIGHT / 3,
-			    SCREEN_HEIGHT / 2 + cos(distance) * SCREEN_HEIGHT / 3);
+        DrawSurface(screen, player.sprite(), player.x, player.y);
 
 		fpsTimer += delta;
 		if(fpsTimer > 0.5) {
 			fps = frames * 2;
 			frames = 0;
 			fpsTimer -= 0.5;
-			};
+        };
 
-		// tekst informacyjny / info text
-		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, czerwony, niebieski);
+		// info text
+		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue);
 		//            "template for the second project, elapsed time = %.1lf s  %.0lf frames / s"
 		sprintf(text, "Szablon drugiego zadania, czas trwania = %.1lf s  %.0lf klatek / s", worldTime, fps);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, charset);
@@ -231,30 +270,61 @@ int main(int argc, char **argv) {
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 26, text, charset);
 
 		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
-//		SDL_RenderClear(renderer);
+		// SDL_RenderClear(renderer);
 		SDL_RenderCopy(renderer, scrtex, NULL, NULL);
 		SDL_RenderPresent(renderer);
 
-		// obs³uga zdarzeñ (o ile jakieœ zasz³y) / handling of events (if there were any)
-		while(SDL_PollEvent(&event)) {
-			switch(event.type) {
-				case SDL_KEYDOWN:
-					if(event.key.keysym.sym == SDLK_ESCAPE) quit = 1;
-					else if(event.key.keysym.sym == SDLK_UP) etiSpeed = 2.0;
-					else if(event.key.keysym.sym == SDLK_DOWN) etiSpeed = 0.3;
-					break;
-				case SDL_KEYUP:
-					etiSpeed = 1.0;
-					break;
-				case SDL_QUIT:
-					quit = 1;
-					break;
-				};
-			};
-		frames++;
-		};
+		player.x += player.x_velocity;
+		player.y += player.y_velocity;
+		if (!cheaters_controls && !player.on_surface) {
+            player.y_velocity = fmin(drag, player.y_velocity + gravity);
+        }
+        if (player.y + 118 >= SCREEN_HEIGHT) { // Replace with dynamic sprite height.
+            player.y = SCREEN_HEIGHT - 118;
+            player.on_surface = true;
+            player.y_velocity = 0;
+        } else {
+            player.on_surface = false;
+        }
 
-	// zwolnienie powierzchni / freeing all surfaces
+		// handling of events (if there were any)
+		while(SDL_PollEvent(&event)) {
+			switch(event.type) { // Aways processing a single event, so I break whenever I can, i.e. when I know the event has been fully processed.
+				case SDL_KEYDOWN:
+					if (event.key.keysym.sym == SDLK_ESCAPE) {quit = true; break;}
+					if (event.key.keysym.sym == SDLK_d) {toggle_cheaters_controls(&cheaters_controls, &player); break;}
+					if (cheaters_controls) {
+                        if (event.key.keysym.sym == SDLK_UP) {player.y_velocity = -2.0; break;}
+                        else if (event.key.keysym.sym == SDLK_DOWN) {player.y_velocity = 2.0; break;}
+                        else if (event.key.keysym.sym == SDLK_LEFT) {player.x_velocity = -2.0; break;}
+                        else if (event.key.keysym.sym == SDLK_RIGHT) {player.x_velocity = 2.0; break;}
+					} else {
+                        if (event.key.keysym.sym == SDLK_a) {
+                            player.jump();
+                            break;
+                        }
+                        if (event.key.keysym.sym == SDLK_z) {
+                            player.dash();
+                            break;
+                        }
+					}
+				case SDL_KEYUP:
+                    if (cheaters_controls) {
+                        player.x_velocity = 0.;
+                        player.y_velocity = 0.;
+                        break;
+					}
+					else {
+                        break;
+					}
+				case SDL_QUIT:
+					quit = true; break;
+            }
+        }
+		frames++;
+    };
+
+	// freeing all surfaces
 	SDL_FreeSurface(charset);
 	SDL_FreeSurface(screen);
 	SDL_DestroyTexture(scrtex);
