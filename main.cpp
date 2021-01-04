@@ -6,11 +6,13 @@
 #include <string.h>
 #include <SDL2/SDL.h>
 
-#define SCREEN_WIDTH	640
-#define SCREEN_HEIGHT	480
-#define DEFAULT_X 20
+#define SCREEN_WIDTH	1280
+#define SCREEN_HEIGHT	600
+#define DEFAULT_X 225
+#define DEFAULT_Y 300
 #define gravity .3
 #define drag 1.2 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
+#define TICK_PERIOD 3 // Number of milliseconds between ticks.
 
 using namespace std;
 
@@ -100,28 +102,31 @@ class Unicorn {
         // Immutable properties - only settable on instatiation.
         int init_front_hooves_pos_A, init_rear_hooves_pos_A, init_front_hooves_pos_B, init_rear_hooves_pos_B,
             init_nose_pos_A, init_nose_pos_B;
+        float dash_length;
         // Variables
         int lives;
-        bool double_jump_ready, sprite_phase;
+        bool sprite_phase, dashing;
         SDL_Surface *spriteA, *spriteB;
 
     public:
         float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
         float x_velocity = 0, y_velocity = 0;
-        bool on_surface;
+        bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
-            y = 60;
+            y = DEFAULT_Y;
             angle = 0;
             sprite_phase = false;
             double_jump_ready = true;
             lives = 3;
+            dash_length = 10; // The number of ticks the dash lasts.
             spriteA = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
             spriteB = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
         }
         coordinates get_front_hooves_pos();
         coordinates get_rear_hooves_pos();
         coordinates get_nose_pos();
+        bool die ();
         void jump();
         void dash();
         SDL_Surface* sprite();
@@ -137,6 +142,15 @@ SDL_Surface* Unicorn::sprite() {
     else return spriteB;
 }
 
+bool Unicorn::die() {
+    lives--;
+    double_jump_ready = true;
+    y = DEFAULT_Y;
+    if (lives == 0) {
+        return true; // Should the game end?
+    } else return false;
+}
+
 void Unicorn::jump() {
     if (on_surface) {
         y_velocity -= 10;
@@ -148,6 +162,8 @@ void Unicorn::jump() {
 }
 
 void Unicorn::dash() {
+    dashing = true;
+    double_jump_ready = true;
     return;
 }
 
@@ -159,7 +175,7 @@ void Unicorn::dash() {
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.1"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
 	int t1, t2, frames, rc;
-	double delta, worldTime, fpsTimer, fps;
+	double delta, worldTime, fpsTimer, fps, ticker;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
 	SDL_Surface *eti;
@@ -231,61 +247,47 @@ int main(int argc, char **argv) {
 	fpsTimer = 0;
 	fps = 0;
 	worldTime = 0;
+	ticker = 0;
 
 	while(!quit) {
 		t2 = SDL_GetTicks();
-
-		// w tym momencie t2-t1 to czas w milisekundach,
-		// jaki uplyna³ od ostatniego narysowania ekranu
-		// delta to ten sam czas w sekundach
-		// here t2-t1 is the time in milliseconds since
-		// the last screen was drawn
-		// delta is the same time in seconds
 		delta = (t2 - t1) * 0.001;
-		t1 = t2;
 		worldTime += delta;
-
-		SDL_FillRect(screen, NULL, color_black);
-
-//		DrawSurface(screen, eti,
-//		            SCREEN_WIDTH / 2 + sin(distance) * SCREEN_HEIGHT / 3,
-//			    SCREEN_HEIGHT / 2 + cos(distance) * SCREEN_HEIGHT / 3);
-
-        DrawSurface(screen, player.sprite(), player.x, player.y);
-
-		fpsTimer += delta;
+        fpsTimer += delta;
+        ticker += (t2 - t1);
 		if(fpsTimer > 0.5) {
 			fps = frames * 2;
 			frames = 0;
 			fpsTimer -= 0.5;
-        };
+        }
+        if (ticker >= TICK_PERIOD) {
+            player.x += player.x_velocity;
+            player.y += player.y_velocity;
+            if (!cheaters_controls && !player.on_surface) {
+                player.y_velocity = fmin(drag, player.y_velocity + gravity);
+            }
+            if (player.y + 59 >= SCREEN_HEIGHT) { // Replace with dynamic sprite height.
+                player.on_surface = true;
+                player.double_jump_ready = true;
+                player.y = SCREEN_HEIGHT - 59;
+                player.y_velocity = 0;
+            } else {
+                player.on_surface = false;
+            }
+            ticker = 0.;
+        }
+        t1 = t2;
 
-		// info text
+		SDL_FillRect(screen, NULL, color_black);
+        DrawSurface(screen, player.sprite(), player.x, player.y);
 		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue);
-		//            "template for the second project, elapsed time = %.1lf s  %.0lf frames / s"
-		sprintf(text, "Szablon drugiego zadania, czas trwania = %.1lf s  %.0lf klatek / s", worldTime, fps);
+		sprintf(text, "Time elapsed = %.1lf s  %.0lf FPS (Frames Per Second)", worldTime, fps);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, charset);
-		//	      "Esc - exit, \030 - faster, \031 - slower"
-		sprintf(text, "Esc - wyjscie, \030 - przyspieszenie, \031 - zwolnienie");
+		sprintf(text, "Esc - quit, A - jump, Z - dash, D - toggle cheater's controls.");
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 26, text, charset);
-
 		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
-		// SDL_RenderClear(renderer);
 		SDL_RenderCopy(renderer, scrtex, NULL, NULL);
 		SDL_RenderPresent(renderer);
-
-		player.x += player.x_velocity;
-		player.y += player.y_velocity;
-		if (!cheaters_controls && !player.on_surface) {
-            player.y_velocity = fmin(drag, player.y_velocity + gravity);
-        }
-        if (player.y + 118 >= SCREEN_HEIGHT) { // Replace with dynamic sprite height.
-            player.y = SCREEN_HEIGHT - 118;
-            player.on_surface = true;
-            player.y_velocity = 0;
-        } else {
-            player.on_surface = false;
-        }
 
 		// handling of events (if there were any)
 		while(SDL_PollEvent(&event)) {
@@ -304,7 +306,9 @@ int main(int argc, char **argv) {
                             break;
                         }
                         if (event.key.keysym.sym == SDLK_z) {
-                            player.dash();
+//                            if (player.get_front_hooves_pos()->y <= player.get_rear_hooves_pos()->y) {
+//                                player.dash();
+//                            }
                             break;
                         }
 					}
