@@ -54,11 +54,11 @@ void DrawPixel(SDL_Surface *surface, double x, double y, Uint32 color) {
     x = round(x);
     y = round(y);
     if (x > SCREEN_WIDTH) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen width that is %d exceeded.", x, y, SCREEN_WIDTH);
+        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen width that is %d exceeded.", (int)x, (int)y, SCREEN_WIDTH);
         exit(1);
     }
     if (y > SCREEN_HEIGHT) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen height that is %d exceeded.", x, y, SCREEN_HEIGHT);
+        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen height that is %d exceeded.", (int)x, (int)y, SCREEN_HEIGHT);
         exit(1);
     }
 	int bpp = surface->format->BytesPerPixel;
@@ -93,10 +93,11 @@ double local_map_height (double x, double **map_segments, int map_segments_count
     for (int i = 0; i < map_segments_count; i++) {
         if (x >= map_segments[i][0] && x <= map_segments[i][1]) {
             for (int j = 0; j <= 4; j++) {
-                y += map_segments[i][j+2] * pow(x, 4. - (double)j);
+                y += map_segments[i][j+2] * pow(x - map_segments[i][0], 4. - (double)j);
             }
         }
     }
+    if (y < 0) SDL_LogError(SDL_LOG_CATEGORY_ERROR, "For offset x = %f the map height is negative (y = %f).", x, y);
     return y;
 }
 
@@ -113,7 +114,7 @@ void DrawMap(SDL_Surface *screen, double map_offset, double map_length, int map_
 //            if (current_segment == -1) exit(1); // If after searching the entire map we still don't have a segment containing current offset - exit the program.
 //        }
         DrawPixel(screen, x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count), color);
-        SDL_Log("Look, Ma, I'm drawing a green dot at x = %f, y = %f!!!", x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count));
+        // SDL_Log("Look, Ma, I'm drawing a green dot at x = %f, y = %f!!!", x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count));
 //        if (x >= map_segments[i][1]) current_segment = -1; // We've reached the end of the domain of this segment. Time to look for the next one. Assume they may not be in consecutive sequence.
     }
 }
@@ -150,13 +151,14 @@ class Unicorn {
 
     public:
         float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
-        float x_velocity, y_velocity;
+        float x_velocity, y_velocity, x_movement; // x_movement for cheater's controls only.
         bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
             y = DEFAULT_Y;
             x_velocity = 10;
             y_velocity = 0;
+            x_movement = 0;
             angle = 0;
             sprite_phase = false;
             double_jump_ready = true;
@@ -282,14 +284,15 @@ int main(int argc, char **argv) {
 	// DEBUG
     double map_length = 5 * SCREEN_WIDTH;
     int map_segments_count = 1;
-    double **map_segments = (double**)malloc(7*sizeof(double));
-    map_segments[0][0] = 0.;
-    map_segments[0][1] = 5. * SCREEN_WIDTH;
-    map_segments[0][2] = 0.;
-    map_segments[0][3] = 0.;
-    map_segments[0][4] = 0.;
-    map_segments[0][5] = 0.;
-    map_segments[0][6] = 200.;
+    double **map_segments = (double**)malloc(sizeof(double*));
+    map_segments[0] = (double*)malloc(1*7*sizeof(double));
+    map_segments[0][0] = 0.; // Start of the segment
+    map_segments[0][1] = 5. * SCREEN_WIDTH; // End of the segment
+    map_segments[0][2] = 0.; // x^4
+    map_segments[0][3] = 0.; // x^3
+    map_segments[0][4] = 0.; // x^2
+    map_segments[0][5] = 0.; // x^1
+    map_segments[0][6] = 100.; // x^0
 
 //    map_segments[1][0] = 2.5 * SCREEN_WIDTH;
 //    map_segments[1][1] = 5. * SCREEN_WIDTH;
@@ -317,6 +320,7 @@ int main(int argc, char **argv) {
             if (map_offset >= map_length) {
                 map_offset = fmod(map_offset, map_length);
             }
+            player.x += player.x_movement;
             player.y += player.y_velocity;
             if (!cheaters_controls && !player.on_surface) {
                 player.y_velocity = fmin(drag, player.y_velocity + gravity);
@@ -354,8 +358,8 @@ int main(int argc, char **argv) {
 					if (cheaters_controls) {
                         if (event.key.keysym.sym == SDLK_UP) {player.y_velocity = -2.0; break;}
                         else if (event.key.keysym.sym == SDLK_DOWN) {player.y_velocity = 2.0; break;}
-                        else if (event.key.keysym.sym == SDLK_LEFT) {player.x_velocity = -2.0; break;}
-                        else if (event.key.keysym.sym == SDLK_RIGHT) {player.x_velocity = 2.0; break;}
+                        else if (event.key.keysym.sym == SDLK_LEFT) {player.x_movement = -2.0; break;}
+                        else if (event.key.keysym.sym == SDLK_RIGHT) {player.x_movement = 2.0; break;}
 					} else {
                         if (event.key.keysym.sym == SDLK_a) {
                             player.jump();
