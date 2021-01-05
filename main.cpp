@@ -50,11 +50,21 @@ void DrawSurface(SDL_Surface *screen, SDL_Surface *sprite, int x, int y) {
 };
 
 
-void DrawPixel(SDL_Surface *surface, int x, int y, Uint32 color) {
+void DrawPixel(SDL_Surface *surface, double x, double y, Uint32 color) {
+    x = round(x);
+    y = round(y);
+    if (x > SCREEN_WIDTH) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen width that is %d exceeded.", x, y, SCREEN_WIDTH);
+        exit(1);
+    }
+    if (y > SCREEN_HEIGHT) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen height that is %d exceeded.", x, y, SCREEN_HEIGHT);
+        exit(1);
+    }
 	int bpp = surface->format->BytesPerPixel;
-	Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+	Uint8 *p = (Uint8 *)surface->pixels + (int)y * surface->pitch + (int)x * bpp;
 	*(Uint32 *)p = color;
-	};
+};
 
 
 // draw a vertical (when dx = 0, dy = 1) or horizontal (when dx = 1, dy = 0) line
@@ -257,8 +267,8 @@ int main(int argc, char **argv) {
 
 	char text[128];
 	int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
 	int color_red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
+	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
 	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
 	int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
 
