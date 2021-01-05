@@ -78,6 +78,36 @@ void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k,
 	for (i = y + 1; i < y + k - 1; i++) DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
 }
 
+double local_map_height (double x, double **map_segments, int map_segments_count) {
+    double y = 0.;
+    for (int i = 0; i < map_segments_count; i++) {
+        if (x >= map_segments[i][0] && x <= map_segments[i][1]) {
+            for (int j = 0; j <= 4; j++) {
+                y += map_segments[i][j+2] * pow(x, 4. - (double)j);
+            }
+        }
+    }
+    return y;
+}
+
+void DrawMap(SDL_Surface *screen, double map_offset, double map_length, int map_segments_count, double **map_segments, Uint32 color) {
+    int current_segment = -1; // -1 means we don't know which map segment to evaluate. We use this to avoid finding a matching segment for every pixel.
+    for (double x = 1.; x <= SCREEN_WIDTH; x++) { // For each pixel across the screen width...
+//        if (current_segment == -1) { // If we need to find a segment containing current offset...
+//            for (int j = 0; j < map_segments_count; j++) {
+//                if (x >= map_segments[j][0] && x <= map_segments[j][1]) { // If  current offset is within the domain of this segment...
+//                    current_segment = j;
+//                    break; // Found it - no need to look further.
+//                }
+//            }
+//            if (current_segment == -1) exit(1); // If after searching the entire map we still don't have a segment containing current offset - exit the program.
+//        }
+        DrawPixel(screen, x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count), color);
+        SDL_Log("Look, Ma, I'm drawing a green dot at x = %f, y = %f!!!", x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count));
+//        if (x >= map_segments[i][1]) current_segment = -1; // We've reached the end of the domain of this segment. Time to look for the next one. Assume they may not be in consecutive sequence.
+    }
+}
+
 struct coordinates {
     float x, y;
 };
@@ -110,11 +140,13 @@ class Unicorn {
 
     public:
         float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
-        float x_velocity = 0, y_velocity = 0;
+        float x_velocity, y_velocity;
         bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
             y = DEFAULT_Y;
+            x_velocity = 10;
+            y_velocity = 0;
             angle = 0;
             sprite_phase = false;
             double_jump_ready = true;
@@ -175,7 +207,7 @@ void Unicorn::dash() {
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.1"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
 	int t1, t2, frames, rc;
-	double delta, worldTime, fpsTimer, fps, ticker;
+	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
 	SDL_Surface *eti;
@@ -241,6 +273,7 @@ int main(int argc, char **argv) {
 	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
 	int color_red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
 	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
+	int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
 
 	t1 = SDL_GetTicks();
 	frames = 0;
@@ -248,6 +281,28 @@ int main(int argc, char **argv) {
 	fps = 0;
 	worldTime = 0;
 	ticker = 0;
+	map_offset = 0.;
+	// DEBUG
+    double map_length = 5 * SCREEN_WIDTH;
+    int map_segments_count = 1;
+    double **map_segments = (double**)malloc(7*sizeof(double));
+    map_segments[0][0] = 0.;
+    map_segments[0][1] = 5. * SCREEN_WIDTH;
+    map_segments[0][2] = 0.;
+    map_segments[0][3] = 0.;
+    map_segments[0][4] = 0.;
+    map_segments[0][5] = 0.;
+    map_segments[0][6] = 200.;
+
+//    map_segments[1][0] = 2.5 * SCREEN_WIDTH;
+//    map_segments[1][1] = 5. * SCREEN_WIDTH;
+//    map_segments[1][2] = 0.;
+//    map_segments[1][3] = 0.;
+//    map_segments[1][4] = 0.;
+//    map_segments[1][5] = 0.;
+//    map_segments[1][6] = 400.;
+//    double map_segments[1][7] = {{0., 5. * SCREEN_WIDTH, 0., 0., 0.0003928782, -0.3780091, 45.}};
+	// /DEBUG
 
 	while(!quit) {
 		t2 = SDL_GetTicks();
@@ -261,7 +316,10 @@ int main(int argc, char **argv) {
 			fpsTimer -= 0.5;
         }
         if (ticker >= TICK_PERIOD) {
-            player.x += player.x_velocity;
+            map_offset += 10;
+            if (map_offset >= map_length) {
+                map_offset = fmod(map_offset, map_length);
+            }
             player.y += player.y_velocity;
             if (!cheaters_controls && !player.on_surface) {
                 player.y_velocity = fmin(drag, player.y_velocity + gravity);
@@ -279,6 +337,7 @@ int main(int argc, char **argv) {
         t1 = t2;
 
 		SDL_FillRect(screen, NULL, color_black);
+		DrawMap(screen, map_offset, map_length, map_segments_count, map_segments, color_green);
         DrawSurface(screen, player.sprite(), player.x, player.y);
 		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue);
 		sprintf(text, "Time elapsed = %.1lf s  %.0lf FPS (Frames Per Second)", worldTime, fps);
