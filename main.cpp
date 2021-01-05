@@ -210,7 +210,6 @@ int main(int argc, char **argv) {
 	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
-	SDL_Surface *eti;
 	SDL_Texture *scrtex; // Screen texture.
 	SDL_Window *window;
 	SDL_Renderer *renderer;
@@ -255,18 +254,6 @@ int main(int argc, char **argv) {
     }
 
 	SDL_SetColorKey(charset, true, 0x000000); // sets black as the transparent color for the bitmap loaded to charset
-
-	eti = SDL_LoadBMP("./eti.bmp");
-	if(eti == NULL) {
-		printf("SDL_LoadBMP(eti.bmp) error: %s\n", SDL_GetError());
-		SDL_FreeSurface(charset);
-		SDL_FreeSurface(screen);
-		SDL_DestroyTexture(scrtex);
-		SDL_DestroyWindow(window);
-		SDL_DestroyRenderer(renderer);
-		SDL_Quit();
-		return 1;
-    };
 
 	char text[128];
 	int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
