@@ -1,5 +1,4 @@
 #define _USE_MATH_DEFINES
-#define M_DEG 0.0174533 // 1 angular degree in radians
 
 #include <math.h>
 #include <stdio.h>
@@ -10,8 +9,9 @@
 #define SCREEN_HEIGHT	600
 #define DEFAULT_X 225
 #define DEFAULT_Y 300
-#define gravity .3
-#define drag 1.2 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
+#define GRAVITY .3
+#define DRAG 10 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
+#define JUMP_STRENGTH 10
 #define TICK_PERIOD 3 // Number of milliseconds between ticks.
 
 using namespace std;
@@ -141,7 +141,6 @@ coordinates graphic_rotate(coordinates coords, coordinates pivot, float angle) {
 double** load_map() {
     int length, number_of_segments;
     double **data;
-    double a, b, c, d, e, f, g;
     FILE *fptr;
     fptr = fopen("./map.txt","r");
     fscanf(fptr, "%d", &length);
@@ -168,25 +167,27 @@ class Unicorn {
         // Variables
         int lives;
         bool sprite_phase, dashing;
-        SDL_Surface *spriteA, *spriteB;
+        SDL_Texture *spriteA = NULL, *spriteB = NULL;
 
     public:
-        float angle, x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
-        float x_velocity, y_velocity, x_movement; // x_movement for cheater's controls only.
+        SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL; // DEBUG Make it private again later on
+        float x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
+        double angle;
+        float x_velocity, y_velocity, x_movement; // x_movement is for cheater's controls only. It's player's velocity w.r.t. the screen.
         bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
             y = DEFAULT_Y;
-            x_velocity = 10;
-            y_velocity = 0;
-            x_movement = 0;
-            angle = 0;
+            x_velocity = 10.;
+            y_velocity = 0.;
+            x_movement = 0.;
+            angle = 0.;
             sprite_phase = false;
             double_jump_ready = true;
             lives = 3;
             dash_length = 10; // The number of ticks the dash lasts.
-            spriteA = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
-            spriteB = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
+            spriteA_bmp = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
+            spriteB_bmp = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
         }
         coordinates get_front_hooves_pos();
         coordinates get_rear_hooves_pos();
@@ -194,17 +195,17 @@ class Unicorn {
         bool die ();
         void jump();
         void dash();
-        SDL_Surface* sprite();
+        SDL_Texture* sprite(SDL_Renderer* renderer);
+        SDL_Surface* get_spriteA_bmp() {return spriteA_bmp;} // DEBUG
 } player;
 
-void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
-    if (*cheaters_controls) player->x = DEFAULT_X;
-    *cheaters_controls ^= 1;
-}
-
-SDL_Surface* Unicorn::sprite() {
-    if (sprite_phase) return spriteA;
-    else return spriteB;
+SDL_Texture* Unicorn::sprite(SDL_Renderer* renderer) {
+    SDL_Texture* sprite_tex;
+    SDL_Surface* sprite_bmp;
+    if (sprite_phase) sprite_bmp = spriteA_bmp;
+    else sprite_bmp = spriteA_bmp;
+    sprite_tex = SDL_CreateTextureFromSurface(renderer, sprite_bmp);
+    SDL_UpdateTexture(sprite_tex, NULL, sprite_bmp->pixels, sprite_bmp->pitch);
 }
 
 bool Unicorn::die() {
@@ -218,9 +219,9 @@ bool Unicorn::die() {
 
 void Unicorn::jump() {
     if (on_surface) {
-        y_velocity -= 10;
+        y_velocity = -JUMP_STRENGTH;
     } else if (double_jump_ready) {
-        y_velocity -= 10;
+        y_velocity = -JUMP_STRENGTH;
         double_jump_ready = false;
     }
     return;
@@ -232,6 +233,10 @@ void Unicorn::dash() {
     return;
 }
 
+void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
+    if (*cheaters_controls) player->x = DEFAULT_X;
+    *cheaters_controls ^= 1;
+}
 
 // I'm using classes, so C++ compilation has to be used, but let's remember this trick for later.
 // #ifdef __cplusplus
@@ -247,6 +252,7 @@ int main(int argc, char **argv) {
 	SDL_Texture *scrtex; // Screen texture.
 	SDL_Window *window;
 	SDL_Renderer *renderer;
+	SDL_Rect player_target_rect;
 	bool fullscreen = false; // TODO: Load this from config.
 	bool cheaters_controls = true;
 	bool quit = false;
@@ -256,7 +262,7 @@ int main(int argc, char **argv) {
 		return 1;
     }
 
-	// fullscreen mode
+	// fullscreen mode disabled for now
 	if (fullscreen) rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, &window, &renderer);
 	else rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, &window, &renderer);
 
@@ -265,6 +271,20 @@ int main(int argc, char **argv) {
 		printf("SDL_CreateWindowAndRenderer error: %s\n", SDL_GetError());
 		return 1;
     }
+
+    // DEBUG
+	SDL_Surface* debug_surface = NULL;
+	debug_surface = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
+    if(debug_surface == NULL) {
+        SDL_Log("Error initializing debug_surface!");
+	}
+	SDL_Texture* debug_texture = NULL;
+//	debug_texture = SDL_CreateTextureFromSurface(renderer, debug_surface);
+    debug_texture = SDL_CreateTextureFromSurface(renderer, player.spriteA_bmp);
+	if(debug_texture == NULL) {
+        SDL_Log("Error initializing debug_texture!");
+	}
+	// DEBUG
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 	SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -328,8 +348,9 @@ int main(int argc, char **argv) {
             player.x += player.x_movement;
             player.y += player.y_velocity;
             if (!cheaters_controls && !player.on_surface) {
-                player.y_velocity = fmin(drag, player.y_velocity + gravity);
+                player.y_velocity = fmin(DRAG, player.y_velocity + GRAVITY);
             }
+            player.angle = player.y_velocity / ((GRAVITY + DRAG) / 2) * 15;
             if (player.y + 59 >= SCREEN_HEIGHT) { // Replace with dynamic sprite height.
                 player.on_surface = true;
                 player.double_jump_ready = true;
@@ -342,16 +363,28 @@ int main(int argc, char **argv) {
         }
         t1 = t2;
 
+        player_target_rect = {(int)(player.x - 75.), (int)(player.y - 59.), 150, 118};
+        SDL_RenderClear(renderer);
 		SDL_FillRect(screen, NULL, color_black);
 		DrawMap(screen, map_offset, map_length, map_segments_count, map_segments, color_green);
-        DrawSurface(screen, player.sprite(), player.x, player.y);
-		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue);
+		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue); // The info panel (points, FPS, lives etc.)
 		sprintf(text, "Time elapsed = %.1lf s  %.0lf FPS (Frames Per Second)", worldTime, fps);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, charset);
 		sprintf(text, "Esc - quit, A - jump, Z - dash, D - toggle cheater's controls.");
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 26, text, charset);
-		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
-		SDL_RenderCopy(renderer, scrtex, NULL, NULL);
+		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch); // Copy data from the screen surface to scrtex texture.
+		SDL_RenderCopy(renderer, scrtex, NULL, NULL); // Render the scrtex onto the renderer.
+        if (
+        SDL_RenderCopyEx( // Render player's sprite onto the renderer.
+            renderer,
+            debug_texture, // DEBUG
+//            player.sprite(renderer), // SDL_Texture* texture ;; Source texture // DEBUG
+            NULL, // const SDL_Rect*        srcrect, NULL means copy the entire srcrect
+            &player_target_rect, // const SDL_Rect*        dstrect,
+            player.angle,
+            NULL, // Would take SDL_Point* center, but NULL means rotate about the center of the desitnation rectangle.
+            SDL_FLIP_NONE
+        ) != 0 ) SDL_Log(SDL_GetError());
 		SDL_RenderPresent(renderer);
 
 		// handling of events (if there were any)
@@ -373,7 +406,7 @@ int main(int argc, char **argv) {
                         if (event.key.keysym.sym == SDLK_z) {
 //                            if (player.get_front_hooves_pos()->y <= player.get_rear_hooves_pos()->y) {
 //                                player.dash();
-//                            }
+//                            } // If we are on a flat surface or leaning to the front, we can dash. Or if we are in the air. Rewrite this # TODO
                             break;
                         }
 					}
@@ -399,6 +432,9 @@ int main(int argc, char **argv) {
 	SDL_DestroyTexture(scrtex);
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);
+
+    SDL_FreeSurface(debug_surface); // DEBUG
+	SDL_DestroyTexture(debug_texture); // DEBUG
 
 	SDL_Quit();
 	return 0;
