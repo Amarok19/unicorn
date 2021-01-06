@@ -1,4 +1,5 @@
 #define _USE_MATH_DEFINES
+#define M_RAD 57.2958 // One radian equals 57.2958 degrees
 
 #include <math.h>
 #include <stdio.h>
@@ -7,11 +8,16 @@
 
 #define SCREEN_WIDTH	1280
 #define SCREEN_HEIGHT	600
+#define SPRITE_WIDTH_A 150
+#define SPRITE_HEIGHT_A 118
+#define SPRITE_WIDTH_B 150
+#define SPRITE_HEIGHT_B 108
 #define DEFAULT_X 225
 #define DEFAULT_Y 300
 #define GRAVITY .3
 #define DRAG 10 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
 #define JUMP_STRENGTH 10
+#define NUMBER_0F_LIVES 3
 #define TICK_PERIOD 3 // Number of milliseconds between ticks.
 
 using namespace std;
@@ -119,22 +125,22 @@ void DrawMap(SDL_Surface *screen, double map_offset, double map_length, int map_
     }
 }
 
-struct coordinates {
-    float x, y;
-};
-
-coordinates graphic_rotate(coordinates coords, coordinates pivot, float angle) {
+SDL_Point graphic_rotate(SDL_Point coords, SDL_Point pivot, double angle) {
     // Called "graphic" rotate because it adheres to how coordinates work in graphics-related code:
     // x works as usual, but y increases downwards.
     // angle must be in radians.
-    coordinates result;
-    float x, y, x_rot, y_rot;
-    x = coords.x - pivot.x;
-    y = coords.y - pivot.y;
+    SDL_Point result;
+    double x, y, x_rot, y_rot;
+    angle = angle / M_RAD;
+//    x = (double)(coords.x - pivot.x);
+//    y = (double)(coords.y - pivot.y);
+    x = (double)coords.x;
+    y = (double)coords.y;
     x_rot = x * cos(angle);
-    y_rot = y * (1 - sin(angle));
-    result.x = x_rot + pivot.x;
-    result.y = y_rot + pivot.y;
+    y_rot = y * (1 - sin((-1)*angle));
+    result.x = (int)x_rot + pivot.x;
+    result.y = (int)y_rot + pivot.y;
+    SDL_Log("%d %d %d %d", coords.x, coords.y, result.x, result.y);
     return result;
 }
 
@@ -161,13 +167,23 @@ double** load_map() {
 class Unicorn {
     // private
         // Immutable properties - only settable on instatiation.
-        int init_front_hooves_pos_A, init_rear_hooves_pos_A, init_front_hooves_pos_B, init_rear_hooves_pos_B,
-            init_nose_pos_A, init_nose_pos_B;
+        int front_hooves_pos_A_x = 132 - (SPRITE_WIDTH_A / 2),
+            front_hooves_pos_A_y = 107 - (SPRITE_HEIGHT_A / 2),
+            rear_hooves_pos_A_x = 26 - (SPRITE_WIDTH_A / 2),
+            rear_hooves_pos_A_y = 107 - (SPRITE_HEIGHT_A / 2),
+            nose_pos_A_x = 150 - (SPRITE_WIDTH_A / 2),
+            nose_pos_A_y = 55 - (SPRITE_HEIGHT_A / 2),
+            front_hooves_pos_B_x = 115 - (SPRITE_WIDTH_B / 2),
+            front_hooves_pos_B_y = 118 - (SPRITE_HEIGHT_B / 2),
+            rear_hooves_pos_B_x = 43 - (SPRITE_WIDTH_B / 2),
+            rear_hooves_pos_B_y = 118 - (SPRITE_HEIGHT_B / 2),
+            nose_pos_B_x = 150- (SPRITE_WIDTH_B / 2),
+            nose_pos_B_y = 55 - (SPRITE_HEIGHT_B / 2);
         float dash_length;
         // Variables
         int lives;
         bool sprite_phase, dashing;
-        SDL_Texture *spriteA = NULL, *spriteB = NULL;
+        SDL_Texture *sprite_tex = NULL;
 
     public:
         SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL; // DEBUG Make it private again later on
@@ -184,28 +200,24 @@ class Unicorn {
             angle = 0.;
             sprite_phase = false;
             double_jump_ready = true;
-            lives = 3;
-            dash_length = 10; // The number of ticks the dash lasts.
+            lives = NUMBER_0F_LIVES;
+            dash_length = 50; // The number of ticks the dash lasts.
             spriteA_bmp = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
             spriteB_bmp = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
         }
-        coordinates get_front_hooves_pos();
-        coordinates get_rear_hooves_pos();
-        coordinates get_nose_pos();
+        SDL_Point get_front_hooves_pos();
+        SDL_Point get_rear_hooves_pos();
+        SDL_Point get_nose_pos();
         bool die ();
         void jump();
         void dash();
         SDL_Texture* sprite(SDL_Renderer* renderer);
-        SDL_Surface* get_spriteA_bmp() {return spriteA_bmp;} // DEBUG
 } player;
 
 SDL_Texture* Unicorn::sprite(SDL_Renderer* renderer) {
-    SDL_Texture* sprite_tex;
-    SDL_Surface* sprite_bmp;
-    if (sprite_phase) sprite_bmp = spriteA_bmp;
-    else sprite_bmp = spriteA_bmp;
-    sprite_tex = SDL_CreateTextureFromSurface(renderer, sprite_bmp);
-    SDL_UpdateTexture(sprite_tex, NULL, sprite_bmp->pixels, sprite_bmp->pitch);
+    if (sprite_phase) sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteA_bmp);
+    else sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteB_bmp);
+    return sprite_tex;
 }
 
 bool Unicorn::die() {
@@ -231,6 +243,48 @@ void Unicorn::dash() {
     dashing = true;
     double_jump_ready = true;
     return;
+}
+
+SDL_Point Unicorn::get_nose_pos() {
+    int nose_x, nose_y;
+    if (sprite_phase) {
+        nose_x = nose_pos_A_x;
+        nose_y = nose_pos_A_y;
+    } else {
+        nose_x = nose_pos_B_x;
+        nose_y = nose_pos_B_y;
+    }
+    SDL_Point coords = {nose_x, nose_y};
+    SDL_Point pivot = {x, y};
+    return graphic_rotate(coords, pivot, angle);
+}
+
+SDL_Point Unicorn::get_front_hooves_pos() {
+    int hooves_x, hooves_y;
+    if (sprite_phase) {
+        hooves_x = front_hooves_pos_A_x;
+        hooves_y = front_hooves_pos_A_y;
+    } else {
+        hooves_x = front_hooves_pos_B_x;
+        hooves_y = front_hooves_pos_B_y;
+    }
+    SDL_Point coords = {hooves_x, hooves_y};
+    SDL_Point pivot = {x, y};
+    return graphic_rotate(coords, pivot, angle);
+}
+
+SDL_Point Unicorn::get_rear_hooves_pos() {
+    int hooves_x, hooves_y;
+    if (sprite_phase) {
+        hooves_x = rear_hooves_pos_A_x;
+        hooves_y = rear_hooves_pos_A_y;
+    } else {
+        hooves_x = rear_hooves_pos_B_x;
+        hooves_y = rear_hooves_pos_B_y;
+    }
+    SDL_Point coords = {hooves_x, hooves_y};
+    SDL_Point pivot = {x, y};
+    return graphic_rotate(coords, pivot, angle);
 }
 
 void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
@@ -377,14 +431,38 @@ int main(int argc, char **argv) {
         if (
         SDL_RenderCopyEx( // Render player's sprite onto the renderer.
             renderer,
-            debug_texture, // DEBUG
-//            player.sprite(renderer), // SDL_Texture* texture ;; Source texture // DEBUG
+            player.sprite(renderer), // SDL_Texture* texture ;; Source texture // DEBUG
             NULL, // const SDL_Rect*        srcrect, NULL means copy the entire srcrect
             &player_target_rect, // const SDL_Rect*        dstrect,
-            player.angle,
+            // player.angle, // DEBUG
+            0.,
             NULL, // Would take SDL_Point* center, but NULL means rotate about the center of the desitnation rectangle.
             SDL_FLIP_NONE
         ) != 0 ) SDL_Log(SDL_GetError());
+        // DEBUG
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        // Nose
+        player_target_rect = {player.get_nose_pos().x-2, player.get_nose_pos().y-2, 4, 4};
+        SDL_RenderDrawRect(renderer, &player_target_rect);
+        // Front hooves
+        player_target_rect = {(int)player.get_front_hooves_pos().x-2, (int)player.get_front_hooves_pos().y-2, 4, 4};
+        SDL_RenderDrawRect(renderer, &player_target_rect);
+        // Rear hooves
+        player_target_rect = {(int)player.get_rear_hooves_pos().x-2, (int)player.get_rear_hooves_pos().y-2, 4, 4};
+        SDL_RenderDrawRect(renderer, &player_target_rect);
+        // Null rotation test
+        SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
+        SDL_Point player_coords = {player.x, player.y};
+        SDL_Point null_point = {50, 0};
+        player_target_rect = {graphic_rotate(null_point, player_coords, player.angle).x, graphic_rotate(null_point, player_coords, player.angle).y, 4, 4};
+        SDL_RenderDrawRect(renderer, &player_target_rect);
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        // Player's coordinates.
+        player_target_rect = {player.x-2, player.y-2, 4, 4};
+        SDL_RenderDrawRect(renderer, &player_target_rect);
+		// Reset the draw color
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		// /DEBUG
 		SDL_RenderPresent(renderer);
 
 		// handling of events (if there were any)
