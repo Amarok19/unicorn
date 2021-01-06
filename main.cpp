@@ -138,6 +138,27 @@ coordinates graphic_rotate(coordinates coords, coordinates pivot, float angle) {
     return result;
 }
 
+double** load_map() {
+    int length, number_of_segments;
+    double **data;
+    double a, b, c, d, e, f, g;
+    FILE *fptr;
+    fptr = fopen("./map.txt","r");
+    fscanf(fptr, "%d", &length);
+    fscanf(fptr, "%d", &number_of_segments);
+    data = (double**)malloc((2 + number_of_segments)*sizeof(double*));
+    data[0] = (double*)malloc(7*sizeof(double));
+    data[0][0] = (double)length;
+    data[1] = (double*)malloc(7*sizeof(double));
+    data[1][0] = (double)number_of_segments;
+    for (int i = 0; i < number_of_segments; i++) {
+        data[i+2] = (double*)malloc(7*sizeof(double));
+        fscanf(fptr, "%lf %lf %lf %lf %lf %lf %lf", &data[i+2][0], &data[i+2][1], &data[i+2][2], &data[i+2][3], &data[i+2][4], &data[i+2][5], &data[i+2][6]);
+    }
+    fclose(fptr);
+    return data;
+}
+
 class Unicorn {
     // private
         // Immutable properties - only settable on instatiation.
@@ -218,8 +239,9 @@ void Unicorn::dash() {
 // #endif
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.1"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
-	int t1, t2, frames, rc;
+	int t1, t2, frames, rc, map_length, map_segments_count;
 	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
+	double **map_data, **map_segments;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
 	SDL_Texture *scrtex; // Screen texture.
@@ -274,6 +296,11 @@ int main(int argc, char **argv) {
 	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
 	int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
 
+	map_data = load_map();
+    map_length = map_data[0][0]; // Only copy for convenience to have a more reasonable and informative variable name.
+    map_segments_count = map_data[1][0]; // Same as above.
+    map_segments = map_data + 2;
+
 	t1 = SDL_GetTicks();
 	frames = 0;
 	fpsTimer = 0;
@@ -281,28 +308,6 @@ int main(int argc, char **argv) {
 	worldTime = 0;
 	ticker = 0;
 	map_offset = 0.;
-	// DEBUG
-    double map_length = 5 * SCREEN_WIDTH;
-    int map_segments_count = 1;
-    double **map_segments = (double**)malloc(sizeof(double*));
-    map_segments[0] = (double*)malloc(1*7*sizeof(double));
-    map_segments[0][0] = 0.; // Start of the segment
-    map_segments[0][1] = 5. * SCREEN_WIDTH; // End of the segment
-    map_segments[0][2] = 0.; // x^4
-    map_segments[0][3] = 0.; // x^3
-    map_segments[0][4] = 0.; // x^2
-    map_segments[0][5] = 0.; // x^1
-    map_segments[0][6] = 100.; // x^0
-
-//    map_segments[1][0] = 2.5 * SCREEN_WIDTH;
-//    map_segments[1][1] = 5. * SCREEN_WIDTH;
-//    map_segments[1][2] = 0.;
-//    map_segments[1][3] = 0.;
-//    map_segments[1][4] = 0.;
-//    map_segments[1][5] = 0.;
-//    map_segments[1][6] = 400.;
-//    double map_segments[1][7] = {{0., 5. * SCREEN_WIDTH, 0., 0., 0.0003928782, -0.3780091, 45.}};
-	// /DEBUG
 
 	while(!quit) {
 		t2 = SDL_GetTicks();
@@ -316,7 +321,7 @@ int main(int argc, char **argv) {
 			fpsTimer -= 0.5;
         }
         if (ticker >= TICK_PERIOD) {
-            map_offset += 10;
+            map_offset += player.x_velocity;
             if (map_offset >= map_length) {
                 map_offset = fmod(map_offset, map_length);
             }
@@ -374,7 +379,7 @@ int main(int argc, char **argv) {
 					}
 				case SDL_KEYUP:
                     if (cheaters_controls) {
-                        player.x_velocity = 0.;
+                        player.x_movement = 0.;
                         player.y_velocity = 0.;
                         break;
 					}
