@@ -241,8 +241,8 @@ int Unicorn::detect_collisions(double map_offset, double map_length, double map_
         if (top_collision || front_collision) {gameover = die(); break;}
 
         // Check for bottom contact (i.e. if the unicorn stands on a platform)
-        if (x + map_offset + 0.4 * width >= map_elements[i][0]
-        && x + map_offset - 0.4 * width <=  map_elements[i][0] + map_elements[i][2]
+        if (x + 0.4 * width >= platform_x
+        && x - 0.4 * width <= platform_x + map_elements[i][2]
         && y + height/2 >= map_elements[i][1]
         && y + height/2 <= map_elements[i][1] + map_elements[i][3]
         ) {
