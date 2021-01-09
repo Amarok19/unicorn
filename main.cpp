@@ -8,17 +8,16 @@
 
 #define SCREEN_WIDTH	1280
 #define SCREEN_HEIGHT	600
-#define SPRITE_WIDTH_A 150
-#define SPRITE_HEIGHT_A 118
-#define SPRITE_WIDTH_B 150
-#define SPRITE_HEIGHT_B 108
-#define DEFAULT_X 225
+#define DEFAULT_X 100
 #define DEFAULT_Y 300
+#define STARTING_X_VELOCITY 5.
 #define GRAVITY .3
 #define DRAG 10 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
 #define JUMP_STRENGTH 10
 #define NUMBER_0F_LIVES 3
-#define TICK_PERIOD 3 // Number of milliseconds between ticks.
+#define TICK_PERIOD 30 // Number of milliseconds between ticks. The smaller this number, the faster the game goes.
+                        // 30 gives a fairly dynamic gameplay
+                        // 200 is pretty good for slo-mo gameplay for debugging purposes.
 
 using namespace std;
 
@@ -42,8 +41,8 @@ void DrawString(SDL_Surface *screen, int x, int y, const char *text, SDL_Surface
 		SDL_BlitSurface(charset, &s, screen, &d);
 		x += 8;
 		text++;
-		};
-};
+    }
+}
 
 
 void DrawSurface(SDL_Surface *screen, SDL_Surface *sprite, int x, int y) {
@@ -53,150 +52,92 @@ void DrawSurface(SDL_Surface *screen, SDL_Surface *sprite, int x, int y) {
 	dest.w = sprite->w;
 	dest.h = sprite->h;
 	SDL_BlitSurface(sprite, NULL, screen, &dest);
-};
+}
 
 
 void DrawPixel(SDL_Surface *surface, double x, double y, Uint32 color) {
-    x = round(x);
-    y = round(y);
-    if (x > SCREEN_WIDTH) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen width that is %d exceeded.", (int)x, (int)y, SCREEN_WIDTH);
-        exit(1);
-    }
-    if (y > SCREEN_HEIGHT) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_VIDEO, "Tried to put a pixel at x = %d, y = %d. Screen height that is %d exceeded.", (int)x, (int)y, SCREEN_HEIGHT);
-        exit(1);
-    }
-	int bpp = surface->format->BytesPerPixel;
-	Uint8 *p = (Uint8 *)surface->pixels + (int)y * surface->pitch + (int)x * bpp;
-	*(Uint32 *)p = color;
-};
+    if (x < SCREEN_WIDTH && x >= 0 && y < SCREEN_HEIGHT && y >= 0) {
+        int bpp = surface->format->BytesPerPixel;
+        Uint8 *p = (Uint8 *)surface->pixels + (int)y * surface->pitch + (int)x * bpp;
+        *(Uint32 *)p = color;
+	}
+}
 
 
 // draw a vertical (when dx = 0, dy = 1) or horizontal (when dx = 1, dy = 0) line
 void DrawLine(SDL_Surface *screen, int x, int y, int l, int dx, int dy, Uint32 color) {
 	for(int i = 0; i < l; i++) {
-		DrawPixel(screen, x, y, color);
-		x += dx;
-		y += dy;
-		}
+        DrawPixel(screen, x, y, color);
+        x += dx;
+        y += dy;
+    }
 }
 
 
 // draw a rectangle of size l by k
-void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k,
-                   Uint32 outlineColor, Uint32 fillColor) {
-	int i;
-	DrawLine(screen, x, y, k, 0, 1, outlineColor);
-	DrawLine(screen, x + l - 1, y, k, 0, 1, outlineColor);
-	DrawLine(screen, x, y, l, 1, 0, outlineColor);
-	DrawLine(screen, x, y + k - 1, l, 1, 0, outlineColor);
-	for (i = y + 1; i < y + k - 1; i++) DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
+void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k, Uint32 outlineColor, Uint32 fillColor) {
+	DrawLine(screen, x, y, k, 0, 1, outlineColor); // Left side
+	DrawLine(screen, x + l - 1, y, k, 0, 1, outlineColor); // Right side
+	DrawLine(screen, x, y, l, 1, 0, outlineColor); // Top side
+	DrawLine(screen, x, y + k - 1, l, 1, 0, outlineColor); // Bottom side
+	for (int i = y + 1; i < y + k - 1; i++) DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
 }
 
-double local_map_height (double x, double **map_segments, int map_segments_count) {
-    double y = 0.;
-    for (int i = 0; i < map_segments_count; i++) {
-        if (x >= map_segments[i][0] && x <= map_segments[i][1]) {
-            for (int j = 0; j <= 4; j++) {
-                y += map_segments[i][j+2] * pow(x - map_segments[i][0], 4. - (double)j);
-            }
-        }
-    }
-    if (y < 0) SDL_LogError(SDL_LOG_CATEGORY_ERROR, "For offset x = %f the map height is negative (y = %f).", x, y);
-    return y;
-}
-
-void DrawMap(SDL_Surface *screen, double map_offset, double map_length, int map_segments_count, double **map_segments, Uint32 color) {
-    int current_segment = -1; // -1 means we don't know which map segment to evaluate. We use this to avoid finding a matching segment for every pixel.
-    for (double x = 1.; x <= SCREEN_WIDTH; x++) { // For each pixel across the screen width...
-//        if (current_segment == -1) { // If we need to find a segment containing current offset...
-//            for (int j = 0; j < map_segments_count; j++) {
-//                if (x >= map_segments[j][0] && x <= map_segments[j][1]) { // If  current offset is within the domain of this segment...
-//                    current_segment = j;
-//                    break; // Found it - no need to look further.
-//                }
-//            }
-//            if (current_segment == -1) exit(1); // If after searching the entire map we still don't have a segment containing current offset - exit the program.
-//        }
-        DrawPixel(screen, x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count), color);
-        // SDL_Log("Look, Ma, I'm drawing a green dot at x = %f, y = %f!!!", x, SCREEN_HEIGHT - local_map_height(fmod(x + map_offset, map_length), map_segments, map_segments_count));
-//        if (x >= map_segments[i][1]) current_segment = -1; // We've reached the end of the domain of this segment. Time to look for the next one. Assume they may not be in consecutive sequence.
-    }
-}
-
-SDL_Point graphic_rotate(SDL_Point coords, SDL_Point pivot, double angle) {
-    // Called "graphic" rotate because it adheres to how coordinates work in graphics-related code:
-    // x works as usual, but y increases downwards.
-    // angle must be in radians.
-    SDL_Point result;
-    double x, y, x_rot, y_rot;
-    angle = angle / M_RAD;
-//    x = (double)(coords.x - pivot.x);
-//    y = (double)(coords.y - pivot.y);
-    x = (double)coords.x;
-    y = (double)coords.y;
-    x_rot = x * cos(angle);
-    y_rot = y * (1 - sin((-1)*angle));
-    result.x = (int)x_rot + pivot.x;
-    result.y = (int)y_rot + pivot.y;
-    SDL_Log("%d %d %d %d", coords.x, coords.y, result.x, result.y);
-    return result;
-}
 
 double** load_map() {
     int length, number_of_segments;
     double **data;
     FILE *fptr;
-    fptr = fopen("./map.txt","r");
+    fptr = fopen("./map/platforms.txt","r");
     fscanf(fptr, "%d", &length);
     fscanf(fptr, "%d", &number_of_segments);
     data = (double**)malloc((2 + number_of_segments)*sizeof(double*));
-    data[0] = (double*)malloc(7*sizeof(double));
+    data[0] = (double*)malloc(4*sizeof(double)); // TODO: Remove 4 if possible
     data[0][0] = (double)length;
-    data[1] = (double*)malloc(7*sizeof(double));
+    data[1] = (double*)malloc(4*sizeof(double)); // TODO: Remove 4 if possible
     data[1][0] = (double)number_of_segments;
     for (int i = 0; i < number_of_segments; i++) {
-        data[i+2] = (double*)malloc(7*sizeof(double));
-        fscanf(fptr, "%lf %lf %lf %lf %lf %lf %lf", &data[i+2][0], &data[i+2][1], &data[i+2][2], &data[i+2][3], &data[i+2][4], &data[i+2][5], &data[i+2][6]);
+        data[i+2] = (double*)malloc(4*sizeof(double));
+        fscanf(fptr, "%lf %lf %lf %lf", &data[i+2][0], &data[i+2][1], &data[i+2][2], &data[i+2][3]);
     }
     fclose(fptr);
     return data;
 }
 
+void draw_map (SDL_Surface *screen, double map_offset, double map_length, int map_elements_count, double **map_elements, Uint32 outline_color, Uint32 fill_color) {
+    // TODO Remove map_length
+    for (int i = 0; i < map_elements_count; i++) { // For each map element there is
+        if ((map_elements[i][0] - map_offset <= SCREEN_WIDTH && map_elements[i][0] - map_offset >= 0) // Left edge of the platform is within the screen
+        || (map_elements[i][0] - map_offset + map_elements[i][2] <= SCREEN_WIDTH && map_elements[i][0] - map_offset + map_elements[i][2] >= 0) // Right edge of the platform is within the screen
+        ) {
+            // TODO: Modify this once the vertical offset is added
+            DrawRectangle(screen, -50, 250, 50, 50, outline_color, fill_color);
+            DrawRectangle(screen, map_elements[i][0]-map_offset, map_elements[i][1], map_elements[i][2], map_elements[i][3], outline_color, fill_color);
+        }
+    }
+}
+
 class Unicorn {
     // private
         // Immutable properties - only settable on instatiation.
-        int front_hooves_pos_A_x = 132 - (SPRITE_WIDTH_A / 2),
-            front_hooves_pos_A_y = 107 - (SPRITE_HEIGHT_A / 2),
-            rear_hooves_pos_A_x = 26 - (SPRITE_WIDTH_A / 2),
-            rear_hooves_pos_A_y = 107 - (SPRITE_HEIGHT_A / 2),
-            nose_pos_A_x = 150 - (SPRITE_WIDTH_A / 2),
-            nose_pos_A_y = 55 - (SPRITE_HEIGHT_A / 2),
-            front_hooves_pos_B_x = 115 - (SPRITE_WIDTH_B / 2),
-            front_hooves_pos_B_y = 118 - (SPRITE_HEIGHT_B / 2),
-            rear_hooves_pos_B_x = 43 - (SPRITE_WIDTH_B / 2),
-            rear_hooves_pos_B_y = 118 - (SPRITE_HEIGHT_B / 2),
-            nose_pos_B_x = 150- (SPRITE_WIDTH_B / 2),
-            nose_pos_B_y = 55 - (SPRITE_HEIGHT_B / 2);
-        float dash_length;
+        int dash_length;
         // Variables
-        int lives;
         bool sprite_phase, dashing;
+        int dash_timer;
+        SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL;
         SDL_Texture *sprite_tex = NULL;
 
     public:
-        SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL; // DEBUG Make it private again later on
-        float x, y; // Current attitude. Short names for coords because it's pretty clear anyway what these mean. Not using coords struct intentionally.
-        double angle;
-        float x_velocity, y_velocity, x_movement; // x_movement is for cheater's controls only. It's player's velocity w.r.t. the screen.
+        int lives, width, height;
+        float x, y; // Short names for coords because it's pretty clear anyway what these mean.
+        double angle; // Current attitude.
+        float x_velocity, y_velocity;
         bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
             y = DEFAULT_Y;
-            x_velocity = 10.;
+            x_velocity = STARTING_X_VELOCITY;
             y_velocity = 0.;
-            x_movement = 0.;
             angle = 0.;
             sprite_phase = false;
             double_jump_ready = true;
@@ -204,10 +145,10 @@ class Unicorn {
             dash_length = 50; // The number of ticks the dash lasts.
             spriteA_bmp = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
             spriteB_bmp = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
+            width = spriteA_bmp->w;
+            height = spriteA_bmp->h;
         }
-        SDL_Point get_front_hooves_pos();
-        SDL_Point get_rear_hooves_pos();
-        SDL_Point get_nose_pos();
+        int detect_collisions(double map_elements_count, double **map_elements, double map_offset);
         bool die ();
         void jump();
         void dash();
@@ -215,7 +156,7 @@ class Unicorn {
 } player;
 
 SDL_Texture* Unicorn::sprite(SDL_Renderer* renderer) {
-    if (sprite_phase) sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteA_bmp);
+    if (sprite_phase && !on_surface) sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteA_bmp);
     else sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteB_bmp);
     return sprite_tex;
 }
@@ -241,50 +182,38 @@ void Unicorn::jump() {
 
 void Unicorn::dash() {
     dashing = true;
+    dash_timer = 0;
     double_jump_ready = true;
     return;
 }
 
-SDL_Point Unicorn::get_nose_pos() {
-    int nose_x, nose_y;
-    if (sprite_phase) {
-        nose_x = nose_pos_A_x;
-        nose_y = nose_pos_A_y;
-    } else {
-        nose_x = nose_pos_B_x;
-        nose_y = nose_pos_B_y;
-    }
-    SDL_Point coords = {nose_x, nose_y};
-    SDL_Point pivot = {x, y};
-    return graphic_rotate(coords, pivot, angle);
-}
+int Unicorn::detect_collisions(double map_elements_count, double **map_elements, double map_offset) {
+    // Return values:
+    // 0 = no collision
+    // 1 = standing on a platform
+    // 2 = lethal collision
+    on_surface = false;
 
-SDL_Point Unicorn::get_front_hooves_pos() {
-    int hooves_x, hooves_y;
-    if (sprite_phase) {
-        hooves_x = front_hooves_pos_A_x;
-        hooves_y = front_hooves_pos_A_y;
-    } else {
-        hooves_x = front_hooves_pos_B_x;
-        hooves_y = front_hooves_pos_B_y;
-    }
-    SDL_Point coords = {hooves_x, hooves_y};
-    SDL_Point pivot = {x, y};
-    return graphic_rotate(coords, pivot, angle);
-}
+    if (y - height/2 > SCREEN_HEIGHT) die(); // Falling off the map.
 
-SDL_Point Unicorn::get_rear_hooves_pos() {
-    int hooves_x, hooves_y;
-    if (sprite_phase) {
-        hooves_x = rear_hooves_pos_A_x;
-        hooves_y = rear_hooves_pos_A_y;
-    } else {
-        hooves_x = rear_hooves_pos_B_x;
-        hooves_y = rear_hooves_pos_B_y;
+    for (int i = 0; i < map_elements_count; i++) { // Check each and every element of the entire map
+        // Check for bottom contact (i.e. if the unicorn stands on a platform)
+        if (x + map_offset + 0.4 * width >= map_elements[i][0]
+        && x + map_offset - 0.4 * width <=  map_elements[i][0] + map_elements[i][2]
+        && y + height/2 >= map_elements[i][1]
+        && y + height/2 <= map_elements[i][1] + map_elements[i][3]
+        ) {
+            y = map_elements[i][1] - height/2;
+            y_velocity = 0;
+            on_surface = true;
+            double_jump_ready = true;
+        }
+
+        // Check for frontal / top contact (i.e. if the unicorn has hit something and should die)
     }
-    SDL_Point coords = {hooves_x, hooves_y};
-    SDL_Point pivot = {x, y};
-    return graphic_rotate(coords, pivot, angle);
+
+    if (on_surface) return 1;
+    return 0;
 }
 
 void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
@@ -297,16 +226,16 @@ void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
 // extern "C"
 // #endif
 int main(int argc, char **argv) {
-    SDL_Log("Starting Robot Unicorn Attack v0.1"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
-	int t1, t2, frames, rc, map_length, map_segments_count;
+    SDL_Log("Starting Robot Unicorn Attack v0.2"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
+	int t1, t2, frames, rc, map_length, map_elements_count;
 	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
-	double **map_data, **map_segments;
+	double **map_data, **map_elements;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
 	SDL_Texture *scrtex; // Screen texture.
 	SDL_Window *window;
 	SDL_Renderer *renderer;
-	SDL_Rect player_target_rect;
+	SDL_Rect player_target_rect; // Player position where their sprite should be rendered.
 	bool fullscreen = false; // TODO: Load this from config.
 	bool cheaters_controls = true;
 	bool quit = false;
@@ -325,20 +254,6 @@ int main(int argc, char **argv) {
 		printf("SDL_CreateWindowAndRenderer error: %s\n", SDL_GetError());
 		return 1;
     }
-
-    // DEBUG
-	SDL_Surface* debug_surface = NULL;
-	debug_surface = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
-    if(debug_surface == NULL) {
-        SDL_Log("Error initializing debug_surface!");
-	}
-	SDL_Texture* debug_texture = NULL;
-//	debug_texture = SDL_CreateTextureFromSurface(renderer, debug_surface);
-    debug_texture = SDL_CreateTextureFromSurface(renderer, player.spriteA_bmp);
-	if(debug_texture == NULL) {
-        SDL_Log("Error initializing debug_texture!");
-	}
-	// DEBUG
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 	SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -369,11 +284,12 @@ int main(int argc, char **argv) {
 	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
 	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
 	int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
+	int color_brown = SDL_MapRGB(screen->format, 0xA5, 0x2A, 0x2A);
 
 	map_data = load_map();
     map_length = map_data[0][0]; // Only copy for convenience to have a more reasonable and informative variable name.
-    map_segments_count = map_data[1][0]; // Same as above.
-    map_segments = map_data + 2;
+    map_elements_count = map_data[1][0]; // Same as above.
+    map_elements = map_data + 2; // Same as above.
 
 	t1 = SDL_GetTicks();
 	frames = 0;
@@ -394,25 +310,19 @@ int main(int argc, char **argv) {
 			frames = 0;
 			fpsTimer -= 0.5;
         }
-        if (ticker >= TICK_PERIOD) {
+        if (ticker >= TICK_PERIOD) { // TODO Add for i in ticker % TICK_PERIOD to stay stable in extremely low framerates
             map_offset += player.x_velocity;
             if (map_offset >= map_length) {
                 map_offset = fmod(map_offset, map_length);
             }
-            player.x += player.x_movement;
             player.y += player.y_velocity;
+            if (cheaters_controls && player.y <= player.height/2) player.y = player.height/2;
+            if (cheaters_controls && player.y + player.height/2 >= SCREEN_HEIGHT) player.y = SCREEN_HEIGHT - player.height/2;
             if (!cheaters_controls && !player.on_surface) {
                 player.y_velocity = fmin(DRAG, player.y_velocity + GRAVITY);
             }
             player.angle = player.y_velocity / ((GRAVITY + DRAG) / 2) * 15;
-            if (player.y + 59 >= SCREEN_HEIGHT) { // Replace with dynamic sprite height.
-                player.on_surface = true;
-                player.double_jump_ready = true;
-                player.y = SCREEN_HEIGHT - 59;
-                player.y_velocity = 0;
-            } else {
-                player.on_surface = false;
-            }
+            if (!cheaters_controls) player.detect_collisions(map_elements_count, map_elements, map_offset);
             ticker = 0.;
         }
         t1 = t2;
@@ -420,49 +330,26 @@ int main(int argc, char **argv) {
         player_target_rect = {(int)(player.x - 75.), (int)(player.y - 59.), 150, 118};
         SDL_RenderClear(renderer);
 		SDL_FillRect(screen, NULL, color_black);
-		DrawMap(screen, map_offset, map_length, map_segments_count, map_segments, color_green);
-		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, color_red, color_blue); // The info panel (points, FPS, lives etc.)
+        draw_map(screen, map_offset, map_length, map_elements_count, map_elements, color_green, color_brown);
+		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 52, color_red, color_blue); // The info panel (points, FPS, lives etc.)
 		sprintf(text, "Time elapsed = %.1lf s  %.0lf FPS (Frames Per Second)", worldTime, fps);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, charset);
-		sprintf(text, "Esc - quit, A - jump, Z - dash, D - toggle cheater's controls.");
+		sprintf(text, "Lives left = %d", player.lives);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 26, text, charset);
-		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch); // Copy data from the screen surface to scrtex texture.
+		sprintf(text, "Esc - quit, A - jump, Z - dash, D - toggle cheater's controls.");
+		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 42, text, charset);
+        SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch); // Copy data from the screen surface to scrtex texture.
 		SDL_RenderCopy(renderer, scrtex, NULL, NULL); // Render the scrtex onto the renderer.
         if (
         SDL_RenderCopyEx( // Render player's sprite onto the renderer.
             renderer,
-            player.sprite(renderer), // SDL_Texture* texture ;; Source texture // DEBUG
+            player.sprite(renderer),
             NULL, // const SDL_Rect*        srcrect, NULL means copy the entire srcrect
             &player_target_rect, // const SDL_Rect*        dstrect,
-            // player.angle, // DEBUG
-            0.,
+            player.angle,
             NULL, // Would take SDL_Point* center, but NULL means rotate about the center of the desitnation rectangle.
             SDL_FLIP_NONE
         ) != 0 ) SDL_Log(SDL_GetError());
-        // DEBUG
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-        // Nose
-        player_target_rect = {player.get_nose_pos().x-2, player.get_nose_pos().y-2, 4, 4};
-        SDL_RenderDrawRect(renderer, &player_target_rect);
-        // Front hooves
-        player_target_rect = {(int)player.get_front_hooves_pos().x-2, (int)player.get_front_hooves_pos().y-2, 4, 4};
-        SDL_RenderDrawRect(renderer, &player_target_rect);
-        // Rear hooves
-        player_target_rect = {(int)player.get_rear_hooves_pos().x-2, (int)player.get_rear_hooves_pos().y-2, 4, 4};
-        SDL_RenderDrawRect(renderer, &player_target_rect);
-        // Null rotation test
-        SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
-        SDL_Point player_coords = {player.x, player.y};
-        SDL_Point null_point = {50, 0};
-        player_target_rect = {graphic_rotate(null_point, player_coords, player.angle).x, graphic_rotate(null_point, player_coords, player.angle).y, 4, 4};
-        SDL_RenderDrawRect(renderer, &player_target_rect);
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-        // Player's coordinates.
-        player_target_rect = {player.x-2, player.y-2, 4, 4};
-        SDL_RenderDrawRect(renderer, &player_target_rect);
-		// Reset the draw color
-		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-		// /DEBUG
 		SDL_RenderPresent(renderer);
 
 		// handling of events (if there were any)
@@ -472,16 +359,14 @@ int main(int argc, char **argv) {
 					if (event.key.keysym.sym == SDLK_ESCAPE) {quit = true; break;}
 					if (event.key.keysym.sym == SDLK_d) {toggle_cheaters_controls(&cheaters_controls, &player); break;}
 					if (cheaters_controls) {
-                        if (event.key.keysym.sym == SDLK_UP) {player.y_velocity = -2.0; break;}
-                        else if (event.key.keysym.sym == SDLK_DOWN) {player.y_velocity = 2.0; break;}
-                        else if (event.key.keysym.sym == SDLK_LEFT) {player.x_movement = -2.0; break;}
-                        else if (event.key.keysym.sym == SDLK_RIGHT) {player.x_movement = 2.0; break;}
+                        if (event.key.keysym.sym == SDLK_UP) {player.y_velocity = -6.0; break;}
+                        else if (event.key.keysym.sym == SDLK_DOWN) {player.y_velocity = 6.0; break;}
 					} else {
-                        if (event.key.keysym.sym == SDLK_a) {
+                        if (event.key.keysym.sym == SDLK_z) {
                             player.jump();
                             break;
                         }
-                        if (event.key.keysym.sym == SDLK_z) {
+                        if (event.key.keysym.sym == SDLK_x) {
 //                            if (player.get_front_hooves_pos()->y <= player.get_rear_hooves_pos()->y) {
 //                                player.dash();
 //                            } // If we are on a flat surface or leaning to the front, we can dash. Or if we are in the air. Rewrite this # TODO
@@ -490,7 +375,6 @@ int main(int argc, char **argv) {
 					}
 				case SDL_KEYUP:
                     if (cheaters_controls) {
-                        player.x_movement = 0.;
                         player.y_velocity = 0.;
                         break;
 					}
@@ -510,9 +394,6 @@ int main(int argc, char **argv) {
 	SDL_DestroyTexture(scrtex);
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);
-
-    SDL_FreeSurface(debug_surface); // DEBUG
-	SDL_DestroyTexture(debug_texture); // DEBUG
 
 	SDL_Quit();
 	return 0;
