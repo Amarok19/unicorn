@@ -13,11 +13,14 @@
 #define STARTING_X_VELOCITY 5.
 #define GRAVITY .3
 #define DRAG 10 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
-#define JUMP_STRENGTH 10
+#define JUMP_STRENGTH 7.5
+#define JUMP_INITIAL_PUSH -3.;
+#define Y_ACC_CONST -0.5
 #define NUMBER_0F_LIVES 3
-#define TICK_PERIOD 30 // Number of milliseconds between ticks. The smaller this number, the faster the game goes.
+#define TICK_PERIOD 15 // Number of milliseconds between ticks. The smaller this number, the faster the game goes.
                         // 30 gives a fairly dynamic gameplay
                         // 200 is pretty good for slo-mo gameplay for debugging purposes.
+                        // 3 is good for a decent fast-forward.
 
 using namespace std;
 
@@ -85,7 +88,7 @@ void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k, Uint32 outli
 
 
 double** load_map() {
-    int length, number_of_segments;
+    int length, number_of_segments, fscanf_status;
     double **data;
     FILE *fptr;
     fptr = fopen("./map/platforms.txt","r");
@@ -98,21 +101,41 @@ double** load_map() {
     data[1][0] = (double)number_of_segments;
     for (int i = 0; i < number_of_segments; i++) {
         data[i+2] = (double*)malloc(4*sizeof(double));
-        fscanf(fptr, "%lf %lf %lf %lf", &data[i+2][0], &data[i+2][1], &data[i+2][2], &data[i+2][3]);
+        fscanf_status = fscanf(fptr, "%lf %lf %lf %lf", &data[i+2][0], &data[i+2][1], &data[i+2][2], &data[i+2][3]);
+        if (fscanf_status != 4) { // We use the number of matches fscanf() returns to make sure we read exactly 4 number in each line.
+            SDL_Log("Error reading the map file! Incorrect data in line %d!", i+3);
+            fclose(fptr);
+            exit(1);
+        }
+    }
+
+    fgetc(fptr); // as scanf() leaves endlines in the buffer, we need to get rid of the end of the last line containing data
+    if (!((fgetc(fptr) == '\n') || feof(fptr))) { // Now we check if the file ends either with an empty line or just after the end of the last line of data.
+        SDL_Log("Error reading the map file! The file contains more lines than declared!"); // If there is anything besides that at the end of the file, we raise alarm.
+        fclose(fptr);
+        exit(1);
     }
     fclose(fptr);
     return data;
 }
 
+double** load_fairies () {}
+
+double** load_stars () {}
+
 void draw_map (SDL_Surface *screen, double map_offset, double map_length, int map_elements_count, double **map_elements, Uint32 outline_color, Uint32 fill_color) {
-    // TODO Remove map_length
+    int x;
     for (int i = 0; i < map_elements_count; i++) { // For each map element there is
-        if ((map_elements[i][0] - map_offset <= SCREEN_WIDTH && map_elements[i][0] - map_offset >= 0) // Left edge of the platform is within the screen
-        || (map_elements[i][0] - map_offset + map_elements[i][2] <= SCREEN_WIDTH && map_elements[i][0] - map_offset + map_elements[i][2] >= 0) // Right edge of the platform is within the screen
+        if (map_elements[i][0] < SCREEN_WIDTH && map_offset >= map_length - SCREEN_WIDTH) { // If it is one of the elements that fit within the first segment of map of length equal to screen width AND we're drawing the region of the map when map looping occurs
+            x = map_elements[i][0] - map_offset + map_length; // Then let's cheat a little and say it lies beneath the map.
+        }
+        else x = (map_elements[i][0] - map_offset);
+
+        if ((x <= SCREEN_WIDTH && x >= 0) // Left edge of the platform is within the screen
+        || (x + map_elements[i][2] <= SCREEN_WIDTH && x + map_elements[i][2] >= 0) // Right edge of the platform is within the screen
         ) {
             // TODO: Modify this once the vertical offset is added
-            DrawRectangle(screen, -50, 250, 50, 50, outline_color, fill_color);
-            DrawRectangle(screen, map_elements[i][0]-map_offset, map_elements[i][1], map_elements[i][2], map_elements[i][3], outline_color, fill_color);
+            DrawRectangle(screen, x, map_elements[i][1], map_elements[i][2], map_elements[i][3], outline_color, fill_color);
         }
     }
 }
@@ -131,13 +154,14 @@ class Unicorn {
         int lives, width, height;
         float x, y; // Short names for coords because it's pretty clear anyway what these mean.
         double angle; // Current attitude.
-        float x_velocity, y_velocity;
+        float x_velocity, y_velocity, y_acc;
         bool on_surface, double_jump_ready;
         Unicorn() {
             x = DEFAULT_X;
             y = DEFAULT_Y;
             x_velocity = STARTING_X_VELOCITY;
             y_velocity = 0.;
+            y_acc = 0;
             angle = 0.;
             sprite_phase = false;
             double_jump_ready = true;
@@ -148,7 +172,7 @@ class Unicorn {
             width = spriteA_bmp->w;
             height = spriteA_bmp->h;
         }
-        int detect_collisions(double map_elements_count, double **map_elements, double map_offset);
+        int detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements);
         bool die ();
         void jump();
         void dash();
@@ -172,9 +196,11 @@ bool Unicorn::die() {
 
 void Unicorn::jump() {
     if (on_surface) {
-        y_velocity = -JUMP_STRENGTH;
-    } else if (double_jump_ready) {
-        y_velocity = -JUMP_STRENGTH;
+        y_acc = Y_ACC_CONST;
+        y_velocity = JUMP_INITIAL_PUSH; // Initial push to escape collision detection that would otherwise snap us back to the ground.
+    } else if (double_jump_ready && y_acc == 0.) {
+        y_acc = Y_ACC_CONST;
+        y_velocity = JUMP_INITIAL_PUSH; // Initial push to escape collision detection that would otherwise snap us back to the ground.
         double_jump_ready = false;
     }
     return;
@@ -187,16 +213,33 @@ void Unicorn::dash() {
     return;
 }
 
-int Unicorn::detect_collisions(double map_elements_count, double **map_elements, double map_offset) {
+int Unicorn::detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements) {
     // Return values:
     // 0 = no collision
     // 1 = standing on a platform
     // 2 = lethal collision
+    // 3 = lethal collision and no more lives
+    bool gameover = false;
     on_surface = false;
 
-    if (y - height/2 > SCREEN_HEIGHT) die(); // Falling off the map.
+    if (y - height/2 > SCREEN_HEIGHT) { // Falling off the map.
+        return 2 + die(); // die() returns true if the player has no more lives. This trock allows us to retur 2 if we died but can continue and 3 if we just lost our last life.
+    }
 
     for (int i = 0; i < map_elements_count; i++) { // Check each and every element of the entire map
+        bool front_collision = false, top_collision = false;
+        int platform_x;
+
+        if (map_elements[i][0] < SCREEN_WIDTH && map_offset >= map_length - SCREEN_WIDTH) { // If it is one of the elements that fit within the first segment of map of length equal to screen width AND we're drawing the region of the map when map looping occurs
+            platform_x = map_elements[i][0] - map_offset + map_length; // Then let's cheat a little and say it lies beneath the map.
+        }
+        else platform_x = (map_elements[i][0] - map_offset);
+
+        // Check for deadly collisions
+        if (0 == 1) front_collision = true;
+        if (0 == 1) top_collision = true;
+        if (top_collision || front_collision) {gameover = die(); break;}
+
         // Check for bottom contact (i.e. if the unicorn stands on a platform)
         if (x + map_offset + 0.4 * width >= map_elements[i][0]
         && x + map_offset - 0.4 * width <=  map_elements[i][0] + map_elements[i][2]
@@ -213,6 +256,7 @@ int Unicorn::detect_collisions(double map_elements_count, double **map_elements,
     }
 
     if (on_surface) return 1;
+    if (gameover) return 3;
     return 0;
 }
 
@@ -227,7 +271,7 @@ void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
 // #endif
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.2"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
-	int t1, t2, frames, rc, map_length, map_elements_count;
+	int t1, t2, frames, rc, map_length, map_elements_count, collision_status = 0;
 	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
 	double **map_data, **map_elements;
 	SDL_Event event;
@@ -319,10 +363,12 @@ int main(int argc, char **argv) {
             if (cheaters_controls && player.y <= player.height/2) player.y = player.height/2;
             if (cheaters_controls && player.y + player.height/2 >= SCREEN_HEIGHT) player.y = SCREEN_HEIGHT - player.height/2;
             if (!cheaters_controls && !player.on_surface) {
-                player.y_velocity = fmin(DRAG, player.y_velocity + GRAVITY);
+                player.y_velocity = fmin(DRAG, player.y_velocity + GRAVITY + player.y_acc);
+                if (player.y_velocity <= -(JUMP_STRENGTH * (1 + 0.3 * player.double_jump_ready))) player.y_acc = 0.; // If max velocity increase due to jumping achieved, stop accelerating. Multiplication by 1.3 to make the first jump a bit stronger than the second one.
             }
             player.angle = player.y_velocity / ((GRAVITY + DRAG) / 2) * 15;
-            if (!cheaters_controls) player.detect_collisions(map_elements_count, map_elements, map_offset);
+            if (!cheaters_controls) collision_status = player.detect_collisions(map_offset, map_length, map_elements_count, map_elements);
+            // TODO Handle collision status
             ticker = 0.;
         }
         t1 = t2;
@@ -378,9 +424,10 @@ int main(int argc, char **argv) {
                         player.y_velocity = 0.;
                         break;
 					}
-					else {
+					else if (event.key.keysym.sym == SDLK_z) {
+                        player.y_acc = 0.;
                         break;
-					}
+					} else break;
 				case SDL_QUIT:
 					quit = true; break;
             }

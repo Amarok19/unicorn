@@ -43,6 +43,7 @@
 			<Add option="`sdl2-config --libs`" />
 		</Linker>
 		<Unit filename="main.cpp" />
+		<Unit filename="map/platforms.txt" />
 		<Extensions />
 	</Project>
 </CodeBlocks_project_file>
