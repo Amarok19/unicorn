@@ -143,10 +143,10 @@ void draw_map (SDL_Surface *screen, double map_offset, double map_length, int ma
 class Unicorn {
     // private
         // Immutable properties - only settable on instatiation.
-        int dash_length; // Duration of a single dash in ticks.
+        int dash_length, sprite_timer_threshold; // Duration of a single dash in ticks.
         // Variables
         bool sprite_phase, dashing;
-        int dash_timer; // Number of ticks since dashing started.
+        int dash_timer, sprite_timer; // Number of ticks since dashing started.
         SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL;
         SDL_Texture *sprite_tex = NULL;
 
@@ -167,6 +167,8 @@ class Unicorn {
             double_jump_ready = true;
             lives = NUMBER_0F_LIVES;
             dash_length = 50; // The number of ticks the dash lasts.
+            sprite_timer = 0;
+            sprite_timer_threshold = 3;
             spriteA_bmp = SDL_LoadBMP("./resources/unicorn-spriteA.bmp");
             spriteB_bmp = SDL_LoadBMP("./resources/unicorn-spriteB.bmp");
             width = spriteA_bmp->w;
@@ -183,7 +185,8 @@ class Unicorn {
 } player;
 
 SDL_Texture* Unicorn::sprite(SDL_Renderer* renderer) {
-    if (sprite_phase && !on_surface) sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteA_bmp);
+    if (!on_surface) return SDL_CreateTextureFromSurface(renderer, spriteB_bmp);
+    else if (sprite_phase) sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteA_bmp);
     else sprite_tex = SDL_CreateTextureFromSurface(renderer, spriteB_bmp);
     return sprite_tex;
 }
@@ -249,6 +252,12 @@ int Unicorn::detect_collisions(double map_offset, double map_length, double map_
 
     if (y - height/2 > SCREEN_HEIGHT) { // Falling off the map.
         return 2 + die(); // die() returns true if the player has no more lives. This trock allows us to retur 2 if we died but can continue and 3 if we just lost our last life.
+    }
+
+    sprite_timer ++;
+    if (sprite_timer > sprite_timer_threshold) { // If the threshold has been reached...
+        sprite_phase ^= 1; // Flip the sprite phase bit.
+        sprite_timer = 0; // Reset the timer.
     }
 
     if (dashing) {
