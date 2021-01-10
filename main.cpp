@@ -143,10 +143,10 @@ void draw_map (SDL_Surface *screen, double map_offset, double map_length, int ma
 class Unicorn {
     // private
         // Immutable properties - only settable on instatiation.
-        int dash_length;
+        int dash_length; // Duration of a single dash in ticks.
         // Variables
         bool sprite_phase, dashing;
-        int dash_timer;
+        int dash_timer; // Number of ticks since dashing started.
         SDL_Surface *spriteA_bmp = NULL, *spriteB_bmp = NULL;
         SDL_Texture *sprite_tex = NULL;
 
@@ -174,8 +174,11 @@ class Unicorn {
         }
         int detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements);
         bool die ();
+        void reset();
         void jump();
         void dash();
+        bool dashing_status();
+        double dash_offset();
         SDL_Texture* sprite(SDL_Renderer* renderer);
 } player;
 
@@ -188,13 +191,27 @@ SDL_Texture* Unicorn::sprite(SDL_Renderer* renderer) {
 bool Unicorn::die() {
     lives--;
     double_jump_ready = true;
-    y = DEFAULT_Y;
+    y -= 150; // To steer the player clear of the obstacle that has just killed them.
     if (lives == 0) {
         return true; // Should the game end?
     } else return false;
 }
 
+void Unicorn::reset() {
+            x = DEFAULT_X;
+            y = DEFAULT_Y;
+            x_velocity = STARTING_X_VELOCITY;
+            y_velocity = 0.;
+            y_acc = 0;
+            angle = 0.;
+            sprite_phase = false;
+            double_jump_ready = true;
+            lives = NUMBER_0F_LIVES;
+}
+
 void Unicorn::jump() {
+    if (dashing) return; // Cannot jump during a dash.
+
     if (on_surface) {
         y_acc = Y_ACC_CONST;
         y_velocity = JUMP_INITIAL_PUSH; // Initial push to escape collision detection that would otherwise snap us back to the ground.
@@ -213,6 +230,14 @@ void Unicorn::dash() {
     return;
 }
 
+bool Unicorn::dashing_status() {
+    return dashing;
+}
+
+double Unicorn::dash_offset() {
+    return sin(dash_timer / dash_length * M_PI) * 15;
+}
+
 int Unicorn::detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements) {
     // Return values:
     // 0 = no collision
@@ -226,8 +251,16 @@ int Unicorn::detect_collisions(double map_offset, double map_length, double map_
         return 2 + die(); // die() returns true if the player has no more lives. This trock allows us to retur 2 if we died but can continue and 3 if we just lost our last life.
     }
 
+    if (dashing) {
+        dash_timer += 1;
+        if (dash_timer > dash_length) {
+            dashing = false;
+            dash_timer = 0;
+        }
+    }
+
     for (int i = 0; i < map_elements_count; i++) { // Check each and every element of the entire map
-        bool front_collision = false, top_collision = false;
+        bool horizontal_collision_condition = false, vertical_collision_condition = false;
         int platform_x;
 
         if (map_elements[i][0] < SCREEN_WIDTH && map_offset >= map_length - SCREEN_WIDTH) { // If it is one of the elements that fit within the first segment of map of length equal to screen width AND we're drawing the region of the map when map looping occurs
@@ -236,9 +269,21 @@ int Unicorn::detect_collisions(double map_offset, double map_length, double map_
         else platform_x = (map_elements[i][0] - map_offset);
 
         // Check for deadly collisions
-        if (0 == 1) front_collision = true;
-        if (0 == 1) top_collision = true;
-        if (top_collision || front_collision) {gameover = die(); break;}
+        if (
+        (x + 0.4*width >= platform_x && x + 0.4*width <= platform_x + map_elements[i][2]) // IF the right edge of the player sprite is within the horizontal span of the platform
+        || // AND/OR
+        (x - 0.4*width >= platform_x && x - 0.4*width <= platform_x + map_elements[i][2]) // the right edge of the player sprite is within the horizontal span of the platform
+        ) horizontal_collision_condition = true;
+
+        if (
+        (map_elements[i][1] >= y - 0.4*height && map_elements[i][1] <= y + 0.4*height)
+        ||
+        (map_elements[i][1] + map_elements[i][3] >= y - 0.4*height && map_elements[i][1] + map_elements[i][3] <= y + 0.4*height)
+        ) vertical_collision_condition = true;
+
+        if (vertical_collision_condition && horizontal_collision_condition) {
+            return 2 + die();
+        }
 
         // Check for bottom contact (i.e. if the unicorn stands on a platform)
         if (x + 0.4 * width >= platform_x
@@ -265,6 +310,12 @@ void toggle_cheaters_controls (bool *cheaters_controls, Unicorn *player) {
     *cheaters_controls ^= 1;
 }
 
+void new_game (Unicorn *player, double *map_offset) {
+    player->reset();
+    *map_offset = 0.;
+    return;
+}
+
 // I'm using classes, so C++ compilation has to be used, but let's remember this trick for later.
 // #ifdef __cplusplus
 // extern "C"
@@ -279,7 +330,7 @@ int main(int argc, char **argv) {
 	SDL_Texture *scrtex; // Screen texture.
 	SDL_Window *window;
 	SDL_Renderer *renderer;
-	SDL_Rect player_target_rect; // Player position where their sprite should be rendered.
+	SDL_Rect player_target_rect, rainbow_target_rect; // Player position where their sprite should be rendered.
 	bool fullscreen = false; // TODO: Load this from config.
 	bool cheaters_controls = true;
 	bool quit = false;
@@ -319,8 +370,11 @@ int main(int argc, char **argv) {
 		SDL_Quit();
 		return 1;
     }
-
 	SDL_SetColorKey(charset, true, 0x000000); // sets black as the transparent color for the bitmap loaded to charset
+
+	SDL_Surface *rainbow_surf = SDL_LoadBMP("./resources/rainbow.bmp");
+	SDL_Texture *rainbow = SDL_CreateTextureFromSurface(renderer, rainbow_surf);
+	SDL_FreeSurface(rainbow_surf);
 
 	char text[128];
 	int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
@@ -355,11 +409,14 @@ int main(int argc, char **argv) {
 			fpsTimer -= 0.5;
         }
         if (ticker >= TICK_PERIOD) { // TODO Add for i in ticker % TICK_PERIOD to stay stable in extremely low framerates
+            player.x_velocity = STARTING_X_VELOCITY * (1. + player.dashing_status() * 0.8); // Plus maybe later add acceleration over time.
             map_offset += player.x_velocity;
             if (map_offset >= map_length) {
                 map_offset = fmod(map_offset, map_length);
             }
-            player.y += player.y_velocity;
+            player.x = DEFAULT_X + player.dash_offset();
+            if (player.dashing_status()) player.y_velocity = 0;
+            else player.y += player.y_velocity;
             if (cheaters_controls && player.y <= player.height/2) player.y = player.height/2;
             if (cheaters_controls && player.y + player.height/2 >= SCREEN_HEIGHT) player.y = SCREEN_HEIGHT - player.height/2;
             if (!cheaters_controls && !player.on_surface) {
@@ -373,7 +430,13 @@ int main(int argc, char **argv) {
         }
         t1 = t2;
 
-        player_target_rect = {(int)(player.x - 75.), (int)(player.y - 59.), 150, 118};
+        player_target_rect = {(int)(player.x - 75.), (int)(player.y - 59.), 150, 118}; // The rectangle in which player's sprite should be rendered.
+        rainbow_target_rect = { // The rectangle in which the rainbow effect should be rendered when the player is dashing.
+            (int)(player.x - 75. - 80.), // Upper left corner x coordinate.
+            (int)(player.y - 59. + 0.5 * (player.height - 75.) + 20.), // Upper left corner y coordinate.
+            player.width / 2 + 90., // Rectangle width.
+            75 // Rectangle height.
+        };
         SDL_RenderClear(renderer);
 		SDL_FillRect(screen, NULL, color_black);
         draw_map(screen, map_offset, map_length, map_elements_count, map_elements, color_green, color_brown);
@@ -386,6 +449,17 @@ int main(int argc, char **argv) {
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 42, text, charset);
         SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch); // Copy data from the screen surface to scrtex texture.
 		SDL_RenderCopy(renderer, scrtex, NULL, NULL); // Render the scrtex onto the renderer.
+        if (player.dashing_status()) {
+            SDL_RenderCopyEx( // Render player's sprite onto the renderer.
+                renderer,
+                rainbow,
+                NULL, // const SDL_Rect*        srcrect, NULL means copy the entire srcrect
+                &rainbow_target_rect, // const SDL_Rect*        dstrect,
+                player.angle,
+                NULL, // Would take SDL_Point* center, but NULL means rotate about the center of the desitnation rectangle.
+                SDL_FLIP_NONE
+            );
+        }
         if (
         SDL_RenderCopyEx( // Render player's sprite onto the renderer.
             renderer,
@@ -403,6 +477,7 @@ int main(int argc, char **argv) {
 			switch(event.type) { // Aways processing a single event, so I break whenever I can, i.e. when I know the event has been fully processed.
 				case SDL_KEYDOWN:
 					if (event.key.keysym.sym == SDLK_ESCAPE) {quit = true; break;}
+					if (event.key.keysym.sym == SDLK_n) {new_game(&player, &map_offset); break;}
 					if (event.key.keysym.sym == SDLK_d) {toggle_cheaters_controls(&cheaters_controls, &player); break;}
 					if (cheaters_controls) {
                         if (event.key.keysym.sym == SDLK_UP) {player.y_velocity = -6.0; break;}
@@ -413,9 +488,7 @@ int main(int argc, char **argv) {
                             break;
                         }
                         if (event.key.keysym.sym == SDLK_x) {
-//                            if (player.get_front_hooves_pos()->y <= player.get_rear_hooves_pos()->y) {
-//                                player.dash();
-//                            } // If we are on a flat surface or leaning to the front, we can dash. Or if we are in the air. Rewrite this # TODO
+                            player.dash();
                             break;
                         }
 					}
