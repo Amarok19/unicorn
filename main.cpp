@@ -9,7 +9,7 @@
 #define SCREEN_WIDTH	1280
 #define SCREEN_HEIGHT	600
 #define DEFAULT_X 100
-#define DEFAULT_Y 300
+#define DEFAULT_Y 900 // In the middle of the lower half of the map, vertically.
 #define STARTING_X_VELOCITY 5.
 #define GRAVITY .3
 #define DRAG 10 // Max y velocity due to gravity. Named this way as it implements a simplified concept of drag balancing gravity.
@@ -97,6 +97,7 @@ double** load_map() {
     data = (double**)malloc((2 + number_of_segments)*sizeof(double*));
     data[0] = (double*)malloc(4*sizeof(double)); // TODO: Remove 4 if possible
     data[0][0] = (double)length;
+    data[0][1] = (double)height;
     data[1] = (double*)malloc(4*sizeof(double)); // TODO: Remove 4 if possible
     data[1][0] = (double)number_of_segments;
     for (int i = 0; i < number_of_segments; i++) {
@@ -333,7 +334,7 @@ void new_game (Unicorn *player, double *map_offset) {
 int main(int argc, char **argv) {
     SDL_Log("Starting Robot Unicorn Attack v0.3"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
 	int t1, t2, frames, rc, map_elements_count, collision_status = 0;
-	double delta, worldTime, fpsTimer, fps, ticker, map_offset, vertical_map_offset, map_length, map_height;
+	double delta, worldTime, fpsTimer, fps, ticker, map_offset, vertical_map_offset, map_length, map_height, player_sprite_y;
 	double **map_data, **map_elements;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
@@ -431,7 +432,7 @@ int main(int argc, char **argv) {
             if (player.dashing_status()) player.y_velocity = 0;
             else player.y += player.y_velocity;
             if (cheaters_controls && player.y <= player.height/2) player.y = player.height/2;
-            if (cheaters_controls && player.y + player.height/2 >= SCREEN_HEIGHT) player.y = SCREEN_HEIGHT - player.height/2;
+            if (cheaters_controls && player.y + player.height/2 >= map_height) player.y = map_height - player.height/2;
             if (!cheaters_controls && !player.on_surface) {
                 player.y_velocity = fmin(DRAG, player.y_velocity + GRAVITY + player.y_acc);
                 if (player.y_velocity <= -(JUMP_STRENGTH * (1 + 0.3 * player.double_jump_ready))) player.y_acc = 0.; // If max velocity increase due to jumping achieved, stop accelerating. Multiplication by 1.3 to make the first jump a bit stronger than the second one.
@@ -443,10 +444,22 @@ int main(int argc, char **argv) {
         }
         t1 = t2;
 
-        player_target_rect = {(int)(player.x - 75.), (int)(player.y - 59.), 150, 118}; // The rectangle in which player's sprite should be rendered.
+        if (player.y <= SCREEN_HEIGHT / 2) {
+            player_sprite_y = player.y;
+            SDL_Log("Option A.");
+        }
+        else if (player.y > SCREEN_HEIGHT / 2 && player.y <= map_height - SCREEN_HEIGHT / 2) {
+            player_sprite_y  = SCREEN_HEIGHT / 2;
+            SDL_Log("Option B.");
+        } else {
+            player_sprite_y = player.y - map_height + SCREEN_HEIGHT;
+            SDL_Log("Option C");
+        }
+        SDL_Log("player.y = %f, player_sprite_y = %f", player.y, player_sprite_y);
+        player_target_rect = {(int)(player.x - 75.), (int)(player_sprite_y - 59.), 150, 118}; // The rectangle in which player's sprite should be rendered.
         rainbow_target_rect = { // The rectangle in which the rainbow effect should be rendered when the player is dashing.
             (int)(player.x - 75. - 80.), // Upper left corner x coordinate.
-            (int)(player.y - 59. + 0.5 * (player.height - 75.) + 20.), // Upper left corner y coordinate.
+            (int)(player_sprite_y - 59. + 0.5 * (player.height - 75.) + 20.), // Upper left corner y coordinate.
             player.width / 2 + 90., // Rectangle width.
             75 // Rectangle height.
         };
