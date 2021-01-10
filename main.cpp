@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <SDL2/SDL.h>
+//#include <SDL2-2.0.10/include/SDL.h>
 
 #define SCREEN_WIDTH	1280
 #define SCREEN_HEIGHT	600
@@ -136,7 +137,7 @@ void draw_map (SDL_Surface *screen, double map_offset, double vertical_map_offse
         || (x + map_elements[i][2] <= SCREEN_WIDTH && x + map_elements[i][2] >= 0) // Right edge of the platform is within the screen
         ) {
             // TODO: Modify this once the vertical offset is added
-            DrawRectangle(screen, x, map_elements[i][1], map_elements[i][2], map_elements[i][3], outline_color, fill_color);
+            DrawRectangle(screen, x, map_elements[i][1] - vertical_map_offset, map_elements[i][2], map_elements[i][3], outline_color, fill_color);
         }
     }
 }
@@ -251,7 +252,7 @@ int Unicorn::detect_collisions(double map_offset, double vertical_map_offset, do
     bool gameover = false;
     on_surface = false;
 
-    if (y - height/2 > SCREEN_HEIGHT) { // Falling off the map.
+    if (y - height/2 > map_height) { // Falling off the map.
         y -= 200; // Add some altitude for a chance to encounter a platform under our hooves when respawning.
         return 2 + die(); // die() returns true if the player has no more lives. This trock allows us to retur 2 if we died but can continue and 3 if we just lost our last life.
     }
@@ -446,16 +447,16 @@ int main(int argc, char **argv) {
 
         if (player.y <= SCREEN_HEIGHT / 2) {
             player_sprite_y = player.y;
-            SDL_Log("Option A.");
+            vertical_map_offset = 0.;
         }
         else if (player.y > SCREEN_HEIGHT / 2 && player.y <= map_height - SCREEN_HEIGHT / 2) {
             player_sprite_y  = SCREEN_HEIGHT / 2;
-            SDL_Log("Option B.");
+            vertical_map_offset = player.y - SCREEN_HEIGHT / 2;
         } else {
             player_sprite_y = player.y - map_height + SCREEN_HEIGHT;
-            SDL_Log("Option C");
+            vertical_map_offset = map_height - SCREEN_HEIGHT;
         }
-        SDL_Log("player.y = %f, player_sprite_y = %f", player.y, player_sprite_y);
+        SDL_Log("player.y = %f, vertical_map_offset = %f", player.y, vertical_map_offset);
         player_target_rect = {(int)(player.x - 75.), (int)(player_sprite_y - 59.), 150, 118}; // The rectangle in which player's sprite should be rendered.
         rainbow_target_rect = { // The rectangle in which the rainbow effect should be rendered when the player is dashing.
             (int)(player.x - 75. - 80.), // Upper left corner x coordinate.
