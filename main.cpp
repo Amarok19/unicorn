@@ -88,11 +88,11 @@ void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k, Uint32 outli
 
 
 double** load_map() {
-    int length, number_of_segments, fscanf_status;
+    int length, height, number_of_segments, fscanf_status;
     double **data;
     FILE *fptr;
     fptr = fopen("./map/platforms.txt","r");
-    fscanf(fptr, "%d", &length);
+    fscanf(fptr, "%d %d", &length, &height);
     fscanf(fptr, "%d", &number_of_segments);
     data = (double**)malloc((2 + number_of_segments)*sizeof(double*));
     data[0] = (double*)malloc(4*sizeof(double)); // TODO: Remove 4 if possible
@@ -123,7 +123,7 @@ double** load_fairies () {}
 
 double** load_stars () {}
 
-void draw_map (SDL_Surface *screen, double map_offset, double map_length, int map_elements_count, double **map_elements, Uint32 outline_color, Uint32 fill_color) {
+void draw_map (SDL_Surface *screen, double map_offset, double vertical_map_offset, double map_length, int map_elements_count, double **map_elements, Uint32 outline_color, Uint32 fill_color) {
     int x;
     for (int i = 0; i < map_elements_count; i++) { // For each map element there is
         if (map_elements[i][0] < SCREEN_WIDTH && map_offset >= map_length - SCREEN_WIDTH) { // If it is one of the elements that fit within the first segment of map of length equal to screen width AND we're drawing the region of the map when map looping occurs
@@ -174,7 +174,7 @@ class Unicorn {
             width = spriteA_bmp->w;
             height = spriteA_bmp->h;
         }
-        int detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements);
+        int detect_collisions(double map_offset, double vertical_map_offset, double map_length, double map_height, double map_elements_count, double **map_elements);
         bool die ();
         void reset();
         void jump();
@@ -241,7 +241,7 @@ double Unicorn::dash_offset() {
     return sin(dash_timer / dash_length * M_PI) * 15;
 }
 
-int Unicorn::detect_collisions(double map_offset, double map_length, double map_elements_count, double **map_elements) {
+int Unicorn::detect_collisions(double map_offset, double vertical_map_offset, double map_length, double map_height, double map_elements_count, double **map_elements) {
     // Return values:
     // 0 = no collision
     // 1 = standing on a platform
@@ -251,6 +251,7 @@ int Unicorn::detect_collisions(double map_offset, double map_length, double map_
     on_surface = false;
 
     if (y - height/2 > SCREEN_HEIGHT) { // Falling off the map.
+        y -= 200; // Add some altitude for a chance to encounter a platform under our hooves when respawning.
         return 2 + die(); // die() returns true if the player has no more lives. This trock allows us to retur 2 if we died but can continue and 3 if we just lost our last life.
     }
 
@@ -330,9 +331,9 @@ void new_game (Unicorn *player, double *map_offset) {
 // extern "C"
 // #endif
 int main(int argc, char **argv) {
-    SDL_Log("Starting Robot Unicorn Attack v0.2"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
-	int t1, t2, frames, rc, map_length, map_elements_count, collision_status = 0;
-	double delta, worldTime, fpsTimer, fps, ticker, map_offset;
+    SDL_Log("Starting Robot Unicorn Attack v0.3"); // Could use printf for logging, but SDL_Log feels so much more professional. ;)
+	int t1, t2, frames, rc, map_elements_count, collision_status = 0;
+	double delta, worldTime, fpsTimer, fps, ticker, map_offset, vertical_map_offset, map_length, map_height;
 	double **map_data, **map_elements;
 	SDL_Event event;
 	SDL_Surface *screen, *charset;
@@ -381,20 +382,23 @@ int main(int argc, char **argv) {
     }
 	SDL_SetColorKey(charset, true, 0x000000); // sets black as the transparent color for the bitmap loaded to charset
 
+	// Create a texture for the rainbow effect when dashing, then immediately free the surface used to load the bitmap.
 	SDL_Surface *rainbow_surf = SDL_LoadBMP("./resources/rainbow.bmp");
 	SDL_Texture *rainbow = SDL_CreateTextureFromSurface(renderer, rainbow_surf);
 	SDL_FreeSurface(rainbow_surf);
 
 	char text[128];
-	int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-	int color_red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
-	int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
-	int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
-	int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
-	int color_brown = SDL_MapRGB(screen->format, 0xA5, 0x2A, 0x2A);
+	// Declare some shorthands for most useful, common colors.
+	const int color_black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
+	const int color_red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
+	const int color_green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
+	const int color_blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
+	const int color_white = SDL_MapRGB(screen->format, 0xFF, 0xFF, 0xFF);
+	const int color_brown = SDL_MapRGB(screen->format, 0xA5, 0x2A, 0x2A);
 
 	map_data = load_map();
     map_length = map_data[0][0]; // Only copy for convenience to have a more reasonable and informative variable name.
+    map_height = map_data[0][1]; // Same as above.
     map_elements_count = map_data[1][0]; // Same as above.
     map_elements = map_data + 2; // Same as above.
 
@@ -433,7 +437,7 @@ int main(int argc, char **argv) {
                 if (player.y_velocity <= -(JUMP_STRENGTH * (1 + 0.3 * player.double_jump_ready))) player.y_acc = 0.; // If max velocity increase due to jumping achieved, stop accelerating. Multiplication by 1.3 to make the first jump a bit stronger than the second one.
             }
             player.angle = player.y_velocity / ((GRAVITY + DRAG) / 2) * 15;
-            if (!cheaters_controls) collision_status = player.detect_collisions(map_offset, map_length, map_elements_count, map_elements);
+            if (!cheaters_controls) collision_status = player.detect_collisions(map_offset, vertical_map_offset, map_length, map_height, map_elements_count, map_elements);
             // TODO Handle collision status
             ticker = 0.;
         }
@@ -448,7 +452,7 @@ int main(int argc, char **argv) {
         };
         SDL_RenderClear(renderer);
 		SDL_FillRect(screen, NULL, color_black);
-        draw_map(screen, map_offset, map_length, map_elements_count, map_elements, color_green, color_brown);
+        draw_map(screen, map_offset, vertical_map_offset, map_length, map_elements_count, map_elements, color_green, color_brown);
 		DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 52, color_red, color_blue); // The info panel (points, FPS, lives etc.)
 		sprintf(text, "Time elapsed = %.1lf s  %.0lf FPS (Frames Per Second)", worldTime, fps);
 		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, charset);
