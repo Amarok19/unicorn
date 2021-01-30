@@ -17,8 +17,6 @@
 				<Linker>
 					<Add option="-lSDL2" />
 					<Add option="-lpthread" />
-					<Add option="-lrt" />
-					<Add option="-ldl" />
 					<Add option="-lm" />
 				</Linker>
 			</Target>
@@ -36,11 +34,11 @@
 			</Target>
 		</Build>
 		<Compiler>
-			<Add option="`sdl2-config --cflags`" />
 			<Add option="-Wall" />
+			<Add option="`sdl2-config --cflags`" />
 		</Compiler>
 		<Linker>
-			<Add option="`sdl2-config --libs`" />
+			<Add option="-lSDL2 -lm -lrt -ldl" />
 		</Linker>
 		<Unit filename="main.cpp" />
 		<Extensions />
